@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RTSP webcam / video-file streamer — self-contained (includes MediaMTX)
+# Base: Fedora (latest)
+# ─────────────────────────────────────────────────────────────────────────────
+FROM fedora:latest
+
+LABEL maintainer="you@example.com"
+LABEL description="Self-contained RTSP streamer: MediaMTX + FFmpeg + webcam/video fallback"
+
+# ── System packages ───────────────────────────────────────────────────────────
+RUN dnf -y install \
+        https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+        https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm \
+    && dnf -y upgrade \
+    && dnf -y install \
+        ffmpeg \
+        ffmpeg-libs \
+        v4l-utils \
+        python3 \
+        curl \
+        tar \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# ── MediaMTX ─────────────────────────────────────────────────────────────────
+ARG MEDIAMTX_VERSION=v1.9.3
+RUN curl -fsSL \
+        "https://github.com/bluenviron/mediamtx/releases/download/${MEDIAMTX_VERSION}/mediamtx_${MEDIAMTX_VERSION}_linux_amd64.tar.gz" \
+        | tar -xz -C /usr/local/bin mediamtx \
+    && chmod +x /usr/local/bin/mediamtx
+
+RUN mkdir -p /etc/mediamtx
+COPY mediamtx.yml /etc/mediamtx/mediamtx.yml
+
+# ── Application ───────────────────────────────────────────────────────────────
+WORKDIR /app
+COPY stream.py     /app/stream.py
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/stream.py /app/entrypoint.sh
+
+RUN mkdir -p /videos
+
+# ── Environment defaults ──────────────────────────────────────────────────────
+ENV RTSP_HOST=127.0.0.1
+ENV RTSP_PORT=8554
+ENV RTSP_NAME=stream
+
+# Webcam streaming options
+ENV CAM_RTBUFSIZE=100M
+ENV CAM_VIDEO_CODEC=libx264
+ENV CAM_AUDIO_CODEC=libopus
+ENV CAM_VIDEO_BITRATE=600k
+ENV CAM_AUDIO_BITRATE=64k
+ENV CAM_PRESET=ultrafast
+ENV CAM_TUNE=zerolatency
+ENV CAM_FRAMERATE=30
+ENV CAM_RESOLUTION=
+
+# Video-file fallback options
+ENV VID_VIDEO_CODEC=libx264
+ENV VID_AUDIO_CODEC=libopus
+ENV VID_VIDEO_BITRATE=600k
+ENV VID_AUDIO_BITRATE=64k
+ENV VID_PRESET=fast
+ENV VID_DIR=/videos
+
+# Misc
+ENV DEVICE_PROBE_TIMEOUT=5
+
+# ── Expose ports ──────────────────────────────────────────────────────────────
+EXPOSE 8554
+EXPOSE 8888
+EXPOSE 8889
+EXPOSE 8189/udp
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+ENTRYPOINT ["/app/entrypoint.sh"]
