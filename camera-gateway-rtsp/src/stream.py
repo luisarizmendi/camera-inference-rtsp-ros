@@ -56,24 +56,53 @@ def list_video_devices() -> list[str]:
 
 
 def device_has_image(device: str) -> bool:
-    cmd = [
-        "ffmpeg", "-loglevel", "error",
-        "-f", "v4l2",
-        "-t", str(DEVICE_PROBE_TIMEOUT),
-        "-i", device,
-        "-vframes", "1",
-        "-f", "null", "-",
-    ]
-    log.info("Probing %s …", device)
-    try:
-        result = subprocess.run(cmd, timeout=DEVICE_PROBE_TIMEOUT + 2,
-                                capture_output=True)
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
+    """
+    Try to grab a single frame from *device*.
+    1. Check device is readable (permission check)
+    2. Use v4l2-ctl to confirm it is a capture device
+    3. Try ffmpeg probe with mjpeg, yuyv, and default formats in sequence
+    """
+    # Step 1: permission check
+    if not os.access(device, os.R_OK):
+        log.warning("Cannot read %s — permission denied. "
+                    "Make sure the container is run with --device %s "
+                    "and --group-add video", device, device)
         return False
-    except FileNotFoundError:
-        log.error("ffmpeg not found in PATH")
-        sys.exit(1)
+
+    # Step 2: check it is a video capture device (not metadata/output node)
+    try:
+        caps = subprocess.run(
+            ["v4l2-ctl", "--device", device, "--info"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if caps.returncode == 0 and "Video Capture" not in caps.stdout:
+            log.info("Skipping %s (not a capture device)", device)
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass  # v4l2-ctl not available — proceed anyway
+
+    # Step 3: try several input formats — webcams vary widely
+    formats = ["mjpeg", "yuyv422", ""]   # empty string = let ffmpeg decide
+    log.info("Probing %s …", device)
+    for fmt in formats:
+        cmd = ["ffmpeg", "-loglevel", "warning", "-f", "v4l2"]
+        if fmt:
+            cmd += ["-input_format", fmt]
+        cmd += ["-i", device, "-vframes", "1", "-f", "null", "-"]
+        try:
+            result = subprocess.run(cmd, timeout=DEVICE_PROBE_TIMEOUT + 2,
+                                    capture_output=True, text=True)
+            if result.returncode == 0:
+                log.info("Device %s working (format: %s)", device, fmt or "auto")
+                return True
+            last_err = (result.stderr or "").strip().splitlines()
+            last_err = last_err[-1] if last_err else "unknown error"
+            log.debug("Format %s failed on %s: %s", fmt or "auto", device, last_err)
+        except subprocess.TimeoutExpired:
+            log.debug("Probe timed out for %s with format %s", device, fmt or "auto")
+
+    log.info("No image from %s after trying all formats", device)
+    return False
 
 
 def find_working_camera() -> str | None:
@@ -81,7 +110,6 @@ def find_working_camera() -> str | None:
         if device_has_image(dev):
             log.info("Found working camera: %s", dev)
             return dev
-        log.info("No image from %s, skipping.", dev)
     return None
 
 
@@ -90,14 +118,31 @@ def h264_extra_flags() -> list[str]:
     return [
         "-pix_fmt",    "yuv420p",
         "-profile:v",  "baseline",
-        "-level:v",    "3.1",
+        "-level:v",    "4.2",        # 4.2 supports up to 1080p60 / 4K30
         "-bf",         "0",          # no B-frames (WebRTC requirement)
     ]
+
+
+def device_has_audio(device: str) -> bool:
+    """Check if a v4l2 device also has an associated audio capture capability."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-f", "v4l2", "-i", device,
+             "-t", "0.5", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "Audio" in result.stderr or "audio" in result.stderr
+    except Exception:
+        return False
 
 
 def stream_camera(device: str) -> None:
     url = rtsp_url()
     log.info("Streaming camera %s → %s", device, url)
+
+    has_audio = device_has_audio(device)
+    if not has_audio:
+        log.info("No audio stream detected on %s — streaming video only", device)
 
     cmd = [
         "ffmpeg", "-loglevel", "warning",
@@ -114,13 +159,12 @@ def stream_camera(device: str) -> None:
     if CAM_VIDEO_CODEC == "libx264":
         cmd += h264_extra_flags()
         cmd += ["-preset", CAM_PRESET, "-tune", CAM_TUNE]
-    cmd += [
-        "-b:v", CAM_VIDEO_BITRATE,
-        "-c:a", CAM_AUDIO_CODEC,
-        "-b:a", CAM_AUDIO_BITRATE,
-        "-f", "rtsp",
-        url,
-    ]
+    cmd += ["-b:v", CAM_VIDEO_BITRATE]
+    if has_audio:
+        cmd += ["-c:a", CAM_AUDIO_CODEC, "-b:a", CAM_AUDIO_BITRATE]
+    else:
+        cmd += ["-an"]   # explicitly disable audio to avoid warnings
+    cmd += ["-f", "rtsp", url]
 
     while True:
         log.info("Running: %s", " ".join(cmd))
@@ -142,6 +186,16 @@ def list_video_files() -> list[str]:
 
 def stream_videos() -> None:
     url = rtsp_url()
+
+    # Check once at startup — if the directory is empty, exit clearly rather
+    # than looping forever with no useful output.
+    files = list_video_files()
+    if not files:
+        log.error(
+            "No video files found in '%s' and no working camera detected. "            "Mount a directory containing video files with: "            "-v /your/videos:%s:ro,z",
+            VID_DIR, VID_DIR,
+        )
+        sys.exit(1)
 
     while True:
         files = list_video_files()
@@ -165,8 +219,7 @@ def stream_videos() -> None:
                 "-b:v", VID_VIDEO_BITRATE,
                 "-c:a", VID_AUDIO_CODEC,
                 "-b:a", VID_AUDIO_BITRATE,
-                "-f", "rtsp",
-                url,
+                "-f", "rtsp", url,
             ]
             log.info("Running: %s", " ".join(cmd))
             proc = subprocess.run(cmd)

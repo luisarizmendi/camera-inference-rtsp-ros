@@ -7,7 +7,7 @@ A self-contained container that turns a USB webcam (or a folder of video files) 
 When the container starts it runs two processes:
 
 1. **MediaMTX** — a lightweight media server that acts as the RTSP/HLS/WebRTC broker.
-2. **stream.py** — a Python script that detects a working USB webcam and streams it to MediaMTX using FFmpeg. If no camera is found (or none produces a valid image), it falls back to looping all video files found in the `/videos` directory, sorted by filename, restarting from the beginning when the playlist ends.
+2. **stream.py** — a Python script that detects a working USB webcam and streams it to MediaMTX using FFmpeg. If no camera is found (or none produces a valid image), it falls back to looping all video files found in the `/videos` directory, sorted by filename, restarting from the beginning when the playlist ends. If neither a camera nor video files are available, the container exits with a clear error message.
 
 ```
 ┌─────────────────────────────────────────┐
@@ -18,15 +18,15 @@ When the container starts it runs two processes:
 │  │ (ffmpeg) │            │           │  │
 │  └──────────┘            └─────┬─────┘  │
 │       ▲                        │        │
-│       │                   ┌────┴─────┐  │
-│  /dev/video*          RTSP │HLS│WebRTC│  │
-│  /videos/             └────┴──┴──────┘  │
+│       │                   ┌────┴──────┐ │
+│  /dev/video*          RTSP │ HLS│WebRTC│ │
+│  /videos/             └────┴───┴──────┘ │
 └─────────────────────────────────────────┘
-         │                  │
-    VLC/ffplay          Browser
+            │             │
+        VLC/ffplay      Browser
 ```
 
-The stream is encoded as **H.264 + Opus**, which is compatible with RTSP players (VLC, ffplay) and all modern browsers via WebRTC.
+The stream is encoded as **H.264 + Opus**, which is compatible with RTSP players (VLC, ffplay) and all modern browsers via WebRTC. Audio is only included if the webcam has a built-in microphone — video-only cameras are handled automatically with no warnings.
 
 ## Requirements
 
@@ -38,11 +38,14 @@ The stream is encoded as **H.264 + Opus**, which is compatible with RTSP players
 
 ### Camera mode
 
+The recommended way to grant device access on SELinux hosts (Fedora/RHEL) is `--security-opt label=disable`, which disables SELinux confinement for the container without granting full root privileges like `--privileged` would:
+
 ```bash
 podman run -it --rm \
   --device /dev/video0 \
+  --security-opt label=disable \
+  --group-add $(getent group video | cut -d: -f3) \
   -p 8554:8554 -p 8888:8888 -p 8889:8889 -p 8189:8189/udp \
-  --group-add video \
   -e MTX_WEBRTCADDITIONALHOSTS=<your-host-ip> \
   quay.io/luisarizmendi/camera-gateway-rtsp:latest
 ```
@@ -62,8 +65,9 @@ podman run -it --rm \
 ```bash
 podman run -it --rm \
   --device /dev/video0 \
+  --security-opt label=disable \
+  --group-add $(getent group video | cut -d: -f3) \
   -p 8554:8554 -p 8888:8888 -p 8889:8889 -p 8189:8189/udp \
-  --group-add video \
   -v /path/to/videos:/videos:ro,z \
   -e MTX_WEBRTCADDITIONALHOSTS=<your-host-ip> \
   quay.io/luisarizmendi/camera-gateway-rtsp:latest
@@ -117,7 +121,7 @@ All behaviour is controlled via environment variables. Pass them with `-e KEY=va
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CAM_VIDEO_CODEC` | `libx264` | Video encoder |
-| `CAM_AUDIO_CODEC` | `libopus` | Audio encoder |
+| `CAM_AUDIO_CODEC` | `libopus` | Audio encoder (only used if the webcam has a mic) |
 | `CAM_VIDEO_BITRATE` | `600k` | Video bitrate |
 | `CAM_AUDIO_BITRATE` | `64k` | Audio bitrate |
 | `CAM_PRESET` | `ultrafast` | x264 encoding preset |
@@ -163,9 +167,50 @@ For ARM64 (e.g. Raspberry Pi), change the MediaMTX download URL in the `Containe
 mediamtx_v1.9.3_linux_arm64v8.tar.gz
 ```
 
-## SELinux note
+## Camera detection
 
-On Fedora/RHEL hosts, volume mounts require the `:z` flag to relabel the directory for container access:
+The container probes all `/dev/video*` devices passed via `--device` in alphabetical order. For each device it:
+
+1. Checks read permissions and warns clearly if access is denied.
+2. Uses `v4l2-ctl` to verify the node is a video capture device (skipping metadata and output-only nodes — many webcams register multiple `/dev/video*` entries).
+3. Tries to grab a frame using mjpeg, yuyv422, and auto format in sequence, picking the first that works.
+
+The first device that successfully produces a frame is used. If you have multiple cameras and want a specific one, pass only that device node:
+
+```bash
+--device /dev/video2
+```
+
+To find which device node your camera uses:
+```bash
+v4l2-ctl --list-devices
+```
+
+## Device access on SELinux hosts (Fedora / RHEL)
+
+SELinux prevents containers from accessing host devices by default even when `--device` is specified. There are two ways to grant access, in order of preference:
+
+**Option 1 — disable SELinux labeling for the container (recommended):**
+```bash
+--security-opt label=disable
+```
+This disables SELinux confinement only for this container without granting full root privileges.
+
+**Option 2 — full privileged mode (less secure, avoid in production):**
+```bash
+--privileged
+```
+
+In both cases, also pass the video group GID so the container process can open the device:
+```bash
+--group-add $(getent group video | cut -d: -f3)
+```
+
+> Note: `--group-add video` (by name) often fails because the `video` group inside the container image may have a different GID than on the host. Using the numeric GID from the host avoids this mismatch.
+
+## SELinux note for volume mounts
+
+On Fedora/RHEL hosts, volume mounts also require the `:z` flag to relabel the directory for container access:
 
 ```bash
 -v /path/to/videos:/videos:ro,z
@@ -173,32 +218,28 @@ On Fedora/RHEL hosts, volume mounts require the `:z` flag to relabel the directo
 
 Without `:z` the container will get a `Permission denied` error even if the directory exists and is readable on the host.
 
-## Camera detection
-
-The container probes all `/dev/video*` devices in alphabetical order and picks the first one that successfully captures a frame. If you have multiple cameras and want to use a specific one, pass only that device:
-
-```bash
---device /dev/video2
-```
-
-If your camera device is not `/dev/video0`, check which device node it uses:
-```bash
-v4l2-ctl --list-devices
-```
-
 ## Troubleshooting
 
-**WebRTC plays in the browser but no video appears**
-Make sure `MTX_WEBRTCADDITIONALHOSTS` is set to the LAN IP of the host. Without it, the WebRTC ICE negotiation fails silently on local networks.
+**Camera detected but no image / falls back to video files**
+Run with `--security-opt label=disable` and the numeric video GID (see above). Check the probe output in the logs — it now prints the actual ffmpeg error for each failed device.
+
+**`Permission denied` on `/dev/videoN` inside the container**
+SELinux is blocking device access. Use `--security-opt label=disable` instead of relying on `--group-add video` alone.
 
 **`Permission denied` on `/videos`**
-Add `:z` to the volume mount: `-v /path/to/videos:/videos:ro,z`. This is a SELinux relabeling requirement on Fedora/RHEL.
+Add `:z` to the volume mount: `-v /path/to/videos:/videos:ro,z`.
 
-**Camera not detected**
-Verify the device is accessible on the host with `v4l2-ctl --list-devices`, then pass the correct device node with `--device /dev/videoN`. Also ensure `--group-add video` is included so the container process can access video devices.
+**Container exits immediately with no camera and no files**
+Either no `--device` was passed, or the `/videos` directory is empty or not mounted. The container exits with a clear error message in this case rather than looping indefinitely.
 
-**Stream works in VLC but not in browser**
-HLS (`http://<host>:8888/stream`) is the most compatible browser fallback — try that first. For WebRTC, make sure port `8189/udp` is mapped and not blocked by a firewall.
+**WebRTC — no video in browser**
+Make sure `MTX_WEBRTCADDITIONALHOSTS` is set to the LAN IP of the host. Without it, the WebRTC ICE negotiation fails on local networks. Also verify port `8189/udp` is mapped and not blocked by a firewall.
+
+**HLS or WebRTC codec errors in browser**
+The stream uses H.264 baseline profile level 4.2 + Opus, which is supported by all modern browsers. If you changed the codec via env vars, revert to the defaults.
 
 **ffmpeg drops frames / buffer overflow warnings**
 Increase `CAM_RTBUFSIZE`, e.g. `-e CAM_RTBUFSIZE=200M`.
+
+**`Dequeued v4l2 buffer contains corrupted data` warnings**
+These appear for the first few frames while the camera sensor warms up. They are harmless and stop after a second or two.
