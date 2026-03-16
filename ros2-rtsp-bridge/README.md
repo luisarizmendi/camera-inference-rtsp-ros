@@ -15,6 +15,7 @@ ros2-rtsp-bridge/
     ├── entrypoint.sh
     └── ros2_pkg/
         ├── package.xml
+        ├── setup.cfg
         ├── setup.py
         ├── resource/
         │   └── rtsp_bridge
@@ -44,18 +45,15 @@ ros2-rtsp-bridge/
 ## Build
 
 ```bash
-# Build the base image first if not already done
-cd ros2-fedora-base/src && podman build -t ros2-fedora-base:latest .
-
-cd ros2-rtsp-bridge/src
-podman build -t ros2-rtsp-bridge:latest .
+cd ros2-fedora-base/src  && podman build -t ros2-fedora-base:latest .
+cd ros2-rtsp-bridge/src  && podman build -t ros2-rtsp-bridge:latest .
 ```
 
 ## Run
 
 ```bash
 podman run --rm --network host \
-  -e RTSP_URL="rtsp://admin:1234@192.168.1.41:8554/stream" \
+  -e RTSP_URL="rtsp://admin:1234@192.168.1.100:554/stream1" \
   -e ROS_TOPIC="/camera/front/image_raw" \
   -e CAMERA_NAME="camera_front" \
   -e TARGET_FPS="15" \
@@ -65,3 +63,19 @@ podman run --rm --network host \
 ```
 
 > Use `--network host` so ROS2 DDS discovery works correctly across containers.
+
+## Notes
+
+### H264 decoder log messages
+
+When using UDP transport (the default, lowest latency), occasional dropped packets
+produce FFmpeg warnings like `decode_slice_header error` or `Frame num change`.
+These are non-fatal — the decoder recovers automatically. They are suppressed in
+the node by setting `OPENCV_FFMPEG_LOGLEVEL=8` (fatal-only) before opening the
+capture, so they will not appear in the container logs.
+
+### RPM Fusion
+
+The Containerfile adds RPM Fusion repos and runs `dnf upgrade` to replace Fedora's
+restricted ffmpeg stub with the full build including H264 support. This is required
+for OpenCV's FFmpeg backend to decode H264 RTSP streams correctly.

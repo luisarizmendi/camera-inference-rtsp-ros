@@ -113,6 +113,11 @@ class RtspBridgeNode(Node):
 
     def _open_capture(self) -> Optional[cv2.VideoCapture]:
         self.get_logger().info(f"Opening stream: {self.rtsp_url}")
+        # Suppress FFmpeg H264 decoder warnings (decode_slice_header error,
+        # frame num changes, etc.) caused by occasional dropped UDP packets.
+        # These are non-fatal and the decoder recovers automatically.
+        # LOG_LEVEL_FATAL (8) = only show fatal errors, not warnings.
+        os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "8"
         cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         return cap if cap.isOpened() else None
 

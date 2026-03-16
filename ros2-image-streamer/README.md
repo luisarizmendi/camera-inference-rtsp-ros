@@ -20,6 +20,7 @@ ros2-image-streamer/
     ├── mediamtx.yml
     └── ros2_pkg/
         ├── package.xml
+        ├── setup.cfg
         ├── setup.py
         ├── resource/
         │   └── image_streamer
@@ -44,8 +45,8 @@ ros2-image-streamer/
 | `VIDEO_PRESET`      | `ultrafast`         | x264 preset |
 | `VIDEO_TUNE`        | `zerolatency`       | x264 tune |
 | `TARGET_FPS`        | `30`                | Output stream FPS |
-| `IMAGE_WIDTH`       | `0`                 | Resize width; `0` = disabled |
-| `IMAGE_HEIGHT`      | `0`                 | Resize height; `0` = disabled |
+| `IMAGE_WIDTH`       | `0`                 | Resize width before encoding; `0` = disabled |
+| `IMAGE_HEIGHT`      | `0`                 | Resize height before encoding; `0` = disabled |
 | `QOS_DEPTH`         | `1`                 | Subscriber QoS history depth |
 | `VERBOSE`           | `false`             | Log every frame |
 | `ROS_DOMAIN_ID`     | `0`                 | ROS2 DDS domain ID |
@@ -56,8 +57,8 @@ For WebRTC from a browser on the same LAN, also pass:
 ## Build
 
 ```bash
-cd ros2-fedora-base/src     && podman build -t ros2-fedora-base:latest .
-cd ros2-image-streamer/src  && podman build -t ros2-image-streamer:latest .
+cd ros2-fedora-base/src    && podman build -t ros2-fedora-base:latest .
+cd ros2-image-streamer/src && podman build -t ros2-image-streamer:latest .
 ```
 
 ## Run — default ports
@@ -86,7 +87,7 @@ set of ports to this container.
 
 The `entrypoint.sh` reads the four port variables at startup and rewrites
 `mediamtx.yml` before launching MediaMTX, so no config file changes are needed —
-just pass different values via environment variables and map them with `-p`.
+just pass different values via environment variables.
 
 Example — `camera-gateway-rtsp` already occupies 8554/8888/8889/8189:
 
@@ -110,5 +111,19 @@ Streams will then be available at:
 | HLS/web  | `http://localhost:8988/front` |
 | WebRTC   | `http://localhost:8989/front` |
 
-If you run **multiple** `ros2-image-streamer` instances on the same host,
+If you run multiple `ros2-image-streamer` instances on the same host,
 each one needs its own unique set of four ports.
+
+## Troubleshooting
+
+### No frames received from the topic
+
+See the FastDDS shared memory note in `ros2-fedora-base/README.md`. Make sure
+you are using the latest base image which ships `fastdds.xml` with shared memory
+disabled.
+
+### FFmpeg codec errors
+
+The Containerfile adds RPM Fusion repos to install the full `ffmpeg` build with
+H264/x264 support. If you see codec errors, ensure the image was built with
+`--no-cache` after the RPM Fusion step was added.

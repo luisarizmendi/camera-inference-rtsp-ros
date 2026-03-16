@@ -1,7 +1,7 @@
 # ros2-broker
 
 Containerized service that acts as the **central ROS2 node** for the camera streaming system.
-It subscribes to all configured image topics, monitors their liveness, and publishes
+Subscribes to all configured image topics, monitors their liveness, and publishes
 a consolidated diagnostic report on `/broker/camera_status`.
 
 Built on `ros2-fedora-base:latest`. Run a single instance per ROS2 domain.
@@ -16,6 +16,7 @@ ros2-broker/
     ├── entrypoint.sh
     └── ros2_pkg/
         ├── package.xml
+        ├── setup.cfg
         ├── setup.py
         ├── resource/
         │   └── image_broker
@@ -70,3 +71,30 @@ Each entry reports:
 | `total_frames`  | Frames received since startup |
 | `fps_estimate`  | Estimated FPS over the last 2 seconds |
 | `last_seen_ago` | Time since the last frame |
+
+## Troubleshooting
+
+### Topics visible but no data received
+
+This is almost always a FastDDS shared memory issue. The base image ships a
+`fastdds.xml` profile that disables shared memory and forces UDPv4 transport,
+which is required for data to flow between containers. Make sure you are using
+the latest base image build.
+
+To verify data is flowing from inside the broker container:
+
+```bash
+podman exec -it <container_id> /bin/bash
+source /usr/lib64/ros2-kilted/setup.bash
+ros2 topic hz /camera/front/image_raw
+```
+
+### Checking RMW implementation
+
+All containers must use the same RMW. The base image sets
+`RMW_IMPLEMENTATION=rmw_fastrtps_cpp`. Verify inside any container:
+
+```bash
+source /usr/lib64/ros2-kilted/setup.bash
+ros2 doctor --report | grep "middleware name"
+```

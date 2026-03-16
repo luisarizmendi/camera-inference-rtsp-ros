@@ -50,3 +50,14 @@ RUN dnf install -y openssh-server && dnf clean all && \
 
 # Source ROS2 in every bash session
 RUN echo "source /usr/lib64/ros2-kilted/setup.bash" >> /etc/bashrc
+
+# ── FastDDS profile ───────────────────────────────────────────────────────────
+# Disables shared memory transport (not shared across container boundaries)
+# and forces UDPv4, which works correctly with --network host across containers.
+RUN mkdir -p /etc/ros2
+COPY fastdds.xml /etc/ros2/fastdds.xml
+
+# ── ROS2 runtime environment ──────────────────────────────────────────────────
+ENV ROS_HOME=/tmp/ros_home
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ENV FASTDDS_DEFAULT_PROFILES_FILE=/etc/ros2/fastdds.xml

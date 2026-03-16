@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <n>image_streamer</n>
+  <name>image_streamer</name>
   <version>0.1.0</version>
   <description>ROS2 Image topic to RTSP/WebRTC streamer via MediaMTX and FFmpeg</description>
   <maintainer email="maintainer@example.com">Maintainer</maintainer>
