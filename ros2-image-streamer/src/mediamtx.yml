@@ -1,0 +1,34 @@
+# MediaMTX minimal configuration
+
+rtspAddress:    :8554
+rtmpAddress:    :1935
+hlsAddress:     :8888
+webRTCAddress:  :8889
+srtAddress:     :8890
+
+# WebRTC ICE UDP port for media
+webRTCICEUDPMuxAddress: :8189
+
+# IMPORTANTE: establece esto a la IP LAN del host que ejecuta el contenedor
+# para que los navegadores en la misma red puedan conectarse vía WebRTC.
+# Se puede sobreescribir en runtime con la variable de entorno:
+#   -e MTX_WEBRTCADDITIONALHOSTS=192.168.1.41
+webRTCAdditionalHosts: []
+
+# Sin autenticación
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+
+paths:
+  all_others:
+    # Stream siempre live, sin grabación ni seek desde el servidor
+    record: no

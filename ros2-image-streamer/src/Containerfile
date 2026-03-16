@@ -1,0 +1,73 @@
+FROM ubuntu:noble
+
+LABEL description="ROS2 Image topic → RTSP/WebRTC streamer via MediaMTX"
+
+# ── ROS2 Kilted repository ────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+       -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── ROS2 + dependencies ───────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    ros-kilted-ros-base \
+    ros-kilted-cv-bridge \
+    python3-colcon-common-extensions \
+    python3-opencv \
+    python3-numpy \
+    ffmpeg \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── MediaMTX ──────────────────────────────────────────────────────────────────
+ARG MEDIAMTX_VERSION=v1.9.3
+RUN curl -fsSL \
+        "https://github.com/bluenviron/mediamtx/releases/download/${MEDIAMTX_VERSION}/mediamtx_${MEDIAMTX_VERSION}_linux_amd64.tar.gz" \
+        | tar -xz -C /usr/local/bin mediamtx \
+    && chmod +x /usr/local/bin/mediamtx
+
+RUN mkdir -p /etc/mediamtx
+COPY mediamtx.yml /etc/mediamtx/mediamtx.yml
+
+# ── ROS2 package ──────────────────────────────────────────────────────────────
+WORKDIR /ros2_ws/src/image_streamer
+COPY ros2_pkg/ ./
+
+WORKDIR /ros2_ws
+RUN /bin/bash -c "source /opt/ros/kilted/setup.bash && colcon build --symlink-install"
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# ── Environment defaults ──────────────────────────────────────────────────────
+ENV RTSP_HOST=127.0.0.1
+ENV RTSP_PORT=8554
+ENV RTSP_NAME=stream
+ENV VIDEO_CODEC=libx264
+ENV VIDEO_BITRATE=1000k
+ENV VIDEO_PRESET=ultrafast
+ENV VIDEO_TUNE=zerolatency
+ENV TARGET_FPS=30
+ENV IMAGE_WIDTH=0
+ENV IMAGE_HEIGHT=0
+ENV ROS_TOPIC=/camera/image_raw
+ENV ROS_DOMAIN_ID=0
+
+# ── Ports ─────────────────────────────────────────────────────────────────────
+# 8554  → RTSP
+# 8888  → HLS  (web player)
+# 8889  → WebRTC (web player)
+# 8189  → WebRTC ICE UDP mux
+EXPOSE 8554
+EXPOSE 8888
+EXPOSE 8889
+EXPOSE 8189/udp
+
+ENTRYPOINT ["/entrypoint.sh"]

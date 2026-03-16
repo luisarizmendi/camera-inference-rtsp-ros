@@ -1,0 +1,32 @@
+FROM ubuntu:noble
+
+# ── ROS2 Kilted repository ────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+       -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+       > /etc/apt/sources.list.d/ros2.list \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── ROS2 + dependencies ───────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    ros-kilted-ros-base \
+    ros-kilted-rmw-cyclonedds-cpp \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build the ROS2 package
+WORKDIR /ros2_ws/src/image_broker
+COPY ros2_pkg/ ./
+
+WORKDIR /ros2_ws
+RUN /bin/bash -c "source /opt/ros/kilted/setup.bash && colcon build --symlink-install"
+
+SHELL ["/bin/bash", "-c"]
+CMD source /opt/ros/kilted/setup.bash \
+    && source /ros2_ws/install/setup.bash \
+    && ros2 run image_broker image_broker_node
