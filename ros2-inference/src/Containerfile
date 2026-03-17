@@ -17,13 +17,13 @@ RUN dnf install -y \
     && dnf clean all
 
 # ── Python: Ultralytics YOLOv11 + CUDA-optional torch ────────────────────────
-# Install CPU torch first; if CUDA is available at runtime it is used automatically
+# if CUDA is available at runtime it is used automatically
 # via the device auto-detection in inference_node.py.
 RUN pip3 install --break-system-packages \
     ultralytics \
     torch \
     torchvision \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+    --extra-index-url https://download.pytorch.org/whl/cu124
 
 # ── Pre-download YOLO model weights during build ─────────────────────────────
 # Download into /opt/yolo_models (readable by all users at runtime).

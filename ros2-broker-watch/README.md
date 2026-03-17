@@ -1,4 +1,4 @@
-# ros2-broker
+# ros2-broker-watch
 
 Optional monitoring service. Subscribes to ROS2 topics and publishes
 health diagnostics on `/broker/camera_status`.
@@ -10,7 +10,7 @@ Run it to get visibility into detection rates and topic health.
 
 | Variable                | Default        | Description |
 |-------------------------|----------------|-------------|
-| `CAMERA_TOPICS`         | _(empty)_      | Comma-separated topics to monitor |
+| `TOPICS`         | _(empty)_      | Comma-separated topics to monitor |
 | `HEALTH_CHECK_INTERVAL` | `5`            | Seconds between health evaluations |
 | `STALE_TIMEOUT`         | `10`           | Seconds without messages before STALE |
 | `REPUBLISH`             | `false`        | Re-publish on `/broker/<topic>/image` |
@@ -22,15 +22,15 @@ Run it to get visibility into detection rates and topic health.
 
 ```bash
 cd ros2-fedora-base/src && podman build -t ros2-fedora-base:latest .
-cd ros2-broker/src      && podman build -t ros2-broker:latest .
+cd ros2-broker-watch/src      && podman build -t ros2-broker-watch:latest .
 ```
 
 ## Run
 
 ```bash
 podman run --rm --network host \
-  -e CAMERA_TOPICS="/detections" \
-  ros2-broker:latest
+  -e TOPICS="/detections" \
+  ros2-broker-watch:latest
 ```
 
 ## Diagnostics topic

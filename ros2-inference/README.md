@@ -83,7 +83,7 @@ With NVIDIA GPU:
 
 ```bash
 podman run --rm --network host \
-  --device nvidia.com/gpu=all \
+  --security-opt=label=disable --device nvidia.com/gpu=all \
   -e RTSP_URL="rtsp://192.168.1.41:8554/stream" \
   -e DEVICE="cuda" \
   -e TARGET_FPS="30" \

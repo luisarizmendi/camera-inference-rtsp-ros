@@ -10,7 +10,7 @@ Central ROS2 node that:
 Environment variables
 ---------------------
 BROKER_NODE_NAME        ROS2 node name (default: image_broker)
-CAMERA_TOPICS           Comma-separated list of topics to monitor
+TOPICS           Comma-separated list of topics to monitor
                         e.g. /camera/front/image_raw,/camera/rear/image_raw
 HEALTH_CHECK_INTERVAL   Seconds between health evaluations (default: 5)
 STALE_TIMEOUT           Seconds without frames before marking a topic STALE
@@ -96,8 +96,8 @@ class ImageBrokerNode(Node):
         super().__init__(node_name)
 
         # ── Config ────────────────────────────────────────────────────────────
-        topics_raw = os.environ.get("CAMERA_TOPICS", "")
-        self.camera_topics: list[str] = [
+        topics_raw = os.environ.get("TOPICS", "")
+        self.TOPICS: list[str] = [
             t.strip() for t in topics_raw.split(",") if t.strip()
         ]
         self.health_interval: float = _env_float("HEALTH_CHECK_INTERVAL", 5.0)
@@ -129,12 +129,12 @@ class ImageBrokerNode(Node):
         )
 
         # ── Subscriptions ─────────────────────────────────────────────────────
-        if not self.camera_topics:
+        if not self.TOPICS:
             self.get_logger().warning(
-                "CAMERA_TOPICS is empty. Broker is running but not monitoring any topic."
+                "TOPICS is empty. Broker is running but not monitoring any topic."
             )
         else:
-            for topic in self.camera_topics:
+            for topic in self.TOPICS:
                 self._stats[topic] = TopicStats(topic)
                 self._subs.append(
                     self.create_subscription(
@@ -150,8 +150,8 @@ class ImageBrokerNode(Node):
                     self.get_logger().info(f"Re-publishing {topic} -> {out}")
 
             self.get_logger().info(
-                f"Monitoring {len(self.camera_topics)} topic(s): "
-                + ", ".join(self.camera_topics)
+                f"Monitoring {len(self.TOPICS)} topic(s): "
+                + ", ".join(self.TOPICS)
             )
 
         # ── Health check timer ────────────────────────────────────────────────

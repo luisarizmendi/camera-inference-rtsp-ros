@@ -31,7 +31,7 @@ them in real-time using a canvas overlay. Total end-to-end latency is
 | `camera-gateway-rtsp` | USB webcam → MediaMTX → RTSP + WebRTC + HLS |
 | `ros2-inference`      | Pulls RTSP → YOLOv11 → publishes `/detections` |
 | `ros2-rosbridge`      | Bridges ROS2 topics → browser WebSocket |
-| `ros2-broker`         | Optional: topic health monitoring |
+| `ros2-broker-watch`         | Optional: topic health monitoring |
 | `viewer`              | Static HTML — open in browser |
 
 ## Quick start
@@ -47,7 +47,7 @@ podman build -t camera-gateway-rtsp:latest camera-gateway-rtsp/src/
 
 ### 2. Configure
 
-Edit `docker-compose.yml`:
+Edit `compose.yml`:
 - Set `MTX_WEBRTCADDITIONALHOSTS` to your host LAN IP
 - Set the correct camera device under `devices`
 - Adjust `YOLO_MODEL` and `TARGET_FPS` to your hardware
@@ -55,7 +55,7 @@ Edit `docker-compose.yml`:
 ### 3. Start
 
 ```bash
-docker compose up -d
+podman compose up -d
 ```
 
 ### 4. Open the viewer
@@ -78,7 +78,7 @@ Open `viewer/src/index.html` in your browser, then:
 
 ## NVIDIA GPU
 
-Uncomment the `deploy` section in `docker-compose.yml` and set `DEVICE=cuda`.
+Uncomment the `deploy` section in `compose.yml` and set `DEVICE=cuda`.
 The inference node auto-detects CUDA at startup if `DEVICE=auto`.
 
 ## Serving the viewer over the network

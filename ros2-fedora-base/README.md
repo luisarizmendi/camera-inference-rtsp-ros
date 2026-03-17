@@ -32,5 +32,5 @@ podman build -t ros2-fedora-base:latest .
 cd ros2-fedora-base/src  && podman build -t ros2-fedora-base:latest .
 cd ros2-inference/src    && podman build -t ros2-inference:latest .
 cd ros2-rosbridge/src    && podman build -t ros2-rosbridge:latest .
-cd ros2-broker/src       && podman build -t ros2-broker:latest .   # optional
+cd ros2-broker-watch/src       && podman build -t ros2-broker-watch:latest .   # optional
 ```

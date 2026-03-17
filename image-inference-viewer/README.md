@@ -18,14 +18,14 @@ viewer/
 ## Build
 
 ```bash
-cd viewer/src
-podman build -t viewer:latest .
+cd image-inference-viewer/src
+podman build -t image-inference-viewer:latest .
 ```
 
 ## Run
 
 ```bash
-podman run --rm -p 8080:8080 viewer:latest
+podman run --rm -p 8080:8080 image-inference-viewer:latest
 ```
 
 Then open `http://<host-ip>:8080` in any browser on the network.
