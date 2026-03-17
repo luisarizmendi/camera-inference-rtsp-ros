@@ -12,7 +12,7 @@ MediaMTX, and only the tiny detection metadata travels through ROS2.
 ```
 MediaMTX:8554 ──RTSP──► inference_node ──► /detections topic
                                                     │
-                                             rosbridge:9090
+                                             rosbridge:9099
                                                     │
                                              browser overlay
 ```

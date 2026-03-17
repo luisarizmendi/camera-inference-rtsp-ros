@@ -22,7 +22,7 @@
 #       └── RTSP :8554 ──► ros2-inference (YOLOv11)
 #                               │ /detections topic
 #                               ▼
-#                          ros2-rosbridge :9090 ─────────► browser overlay
+#                          ros2-rosbridge :9099 ─────────► browser overlay
 #
 # The browser opens viewer/src/index.html and connects to both endpoints.
 
@@ -87,9 +87,9 @@ services:
     restart: unless-stopped
     network_mode: host
     ports:
-      - "9090:9090"
+      - "9099:9099"
     environment:
-      ROSBRIDGE_PORT: "9090"
+      ROSBRIDGE_PORT: "9099"
       ROS_DOMAIN_ID: "0"
 
   # ── Optional: topic health monitor ───────────────────────────────────────────

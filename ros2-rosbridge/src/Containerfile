@@ -1,43 +1,21 @@
-FROM ros2-fedora-base:latest
+FROM ros:jazzy
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
-RUN dnf install -y \
-    ros-kilted-vision-msgs \
-    ros-kilted-rosidl-pycommon \
-    python3-pip \
-    python3-tornado \
-    python3-bson \
-    git \
-    && dnf clean all
-
-RUN pip3 install --break-system-packages autobahn twisted pymongo
-
-# ── Build rosbridge_suite from source (not available in COPR) ─────────────────
-WORKDIR /ros2_ws/src
-RUN git clone --depth 1 --branch ros2 \
-    https://github.com/RobotWebTools/rosbridge_suite.git
-
-# Remove ament_mypy references (not available, only needed for type checking)
-RUN find /ros2_ws/src/rosbridge_suite -name "CMakeLists.txt" | xargs sed -i \
-    -e '/ament_cmake_mypy/d' \
-    -e '/ament_mypy/d'
-
-# Patch type_support.py — rosbridge_suite ros2 branch requires
-# rosidl_pycommon.interface_base_classes which does not exist in Kilted.
-# Replace the import with compatible stubs so the module loads correctly.
-RUN sed -i \
-    's/from rosidl_pycommon.interface_base_classes import BaseAction, BaseImpl, BaseMessage, BaseService/BaseAction = object; BaseImpl = object; BaseMessage = object; BaseService = object/' \
-    /ros2_ws/src/rosbridge_suite/rosbridge_library/src/rosbridge_library/internal/type_support.py
-
-WORKDIR /ros2_ws
-RUN /bin/bash -c "source /usr/lib64/ros2-kilted/setup.bash && \
-    colcon build --symlink-install"
+# ── rosbridge_suite ───────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-rosbridge-server \
+    ros-jazzy-rosbridge-library \
+    ros-jazzy-rosapi \
+    ros-jazzy-vision-msgs \
+    ros-jazzy-rosidl-pycommon
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV ROSBRIDGE_PORT=9090
-EXPOSE 9090
+# WebSocket port
+ENV ROSBRIDGE_PORT=9099
+EXPOSE 9099
 
 ENTRYPOINT ["/entrypoint.sh"]
+
+

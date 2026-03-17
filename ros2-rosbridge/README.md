@@ -14,7 +14,7 @@ cd ros2-rosbridge/src    && podman build -t ros2-rosbridge:latest .
 
 ```bash
 podman run --rm --network host \
-  -e ROSBRIDGE_PORT=9090 \
+  -e ROSBRIDGE_PORT=9099 \
   ros2-rosbridge:latest
 ```
 
@@ -22,5 +22,5 @@ podman run --rm --network host \
 
 | Variable         | Default | Description              |
 |------------------|---------|--------------------------|
-| `ROSBRIDGE_PORT` | `9090`  | WebSocket server port    |
+| `ROSBRIDGE_PORT` | `9099`  | WebSocket server port    |
 | `ROS_DOMAIN_ID`  | `0`     | ROS2 DDS domain ID       |

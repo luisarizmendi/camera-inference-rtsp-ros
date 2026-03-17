@@ -30,9 +30,9 @@ RUN pip3 install --break-system-packages \
 # YOLO_CONFIG_DIR points Ultralytics away from the non-writable default.
 # At runtime YOLO_MODEL can be overridden; if the named file exists in
 # /opt/yolo_models it is used directly without a network download.
-ENV YOLO_CONFIG_DIR=/tmp/Ultralytics
 ENV YOLO_MODELS_DIR=/opt/yolo_models
-RUN mkdir -p /tmp/Ultralytics && chmod -R 777 /tmp/Ultralytics && mkdir -p /opt/yolo_models
+ENV YOLO_CONFIG_DIR=/tmp/yolo_config
+RUN mkdir -p /tmp/yolo_config/Ultralytics && chmod -R 777 /tmp/yolo_config && mkdir -p /opt/yolo_models
 RUN python3 - <<EOF
 from ultralytics import YOLO
 import shutil, os

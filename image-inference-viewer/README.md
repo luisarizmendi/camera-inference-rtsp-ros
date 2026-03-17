@@ -34,7 +34,7 @@ Then open `http://<host-ip>:8080` in any browser on the network.
 
 In the sidebar:
 1. Set **MediaMTX host** to your host IP (e.g. `192.168.1.41`)
-2. Set **rosbridge WebSocket** to `ws://192.168.1.41:9090`
+2. Set **rosbridge WebSocket** to `ws://192.168.1.41:9099`
 3. Click **Connect**
 
 The page auto-fills these fields from the hostname it was served from,

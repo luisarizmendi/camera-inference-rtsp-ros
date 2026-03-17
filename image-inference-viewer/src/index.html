@@ -196,7 +196,7 @@
         <label>Stream name</label>
         <input id="stream-name" type="text" value="stream" />
         <label>rosbridge WebSocket</label>
-        <input id="ws-url" type="text" value="" placeholder="ws://192.168.1.41:9090" />
+        <input id="ws-url" type="text" value="" placeholder="ws://192.168.1.41:9099" />
       </div>
       <button onclick="connect()">Connect</button>
       <button class="danger" onclick="disconnect()" style="margin-top:6px">Disconnect</button>
@@ -256,7 +256,7 @@ window.addEventListener('load', () => {
   if (!document.getElementById('mtx-host').value)
     document.getElementById('mtx-host').value = host;
   if (!document.getElementById('ws-url').value)
-    document.getElementById('ws-url').value = `ws://${host}:9090`;
+    document.getElementById('ws-url').value = `ws://${host}:9099`;
 });
 
 // ── WebRTC (MediaMTX) ──────────────────────────────────────────────────────

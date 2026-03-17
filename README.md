@@ -15,7 +15,7 @@ camera-gateway-rtsp (MediaMTX + FFmpeg)
     └── RTSP :8554 ──► ros2-inference (YOLOv11)
                             │ /detections (tiny JSON)
                             ▼
-                       ros2-rosbridge :9090 ────────────► browser overlay (~50ms)
+                       ros2-rosbridge :9099 ────────────► browser overlay (~50ms)
                                                                │
                                                       canvas bounding boxes
 ```
@@ -62,7 +62,7 @@ docker compose up -d
 
 Open `viewer/src/index.html` in your browser, then:
 1. Set **MediaMTX host** to your host IP (e.g. `192.168.1.41`)
-2. Set **rosbridge WebSocket** to `ws://192.168.1.41:9090`
+2. Set **rosbridge WebSocket** to `ws://192.168.1.41:9099`
 3. Click **Connect**
 
 ## Latency notes
