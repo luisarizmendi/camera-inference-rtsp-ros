@@ -103,7 +103,7 @@ class ImageBrokerNode(Node):
         self.health_interval: float = _env_float("HEALTH_CHECK_INTERVAL", 5.0)
         self.stale_timeout: float   = _env_float("STALE_TIMEOUT", 10.0)
         self.republish: bool        = _env_bool("REPUBLISH")
-        self.qos_depth: int         = _env_int("QOS_DEPTH", 5)
+        self.qos_depth: int         = _env_int("QOS_DEPTH", 1)
         self.verbose: bool          = _env_bool("VERBOSE")
 
         # ── QoS ───────────────────────────────────────────────────────────────

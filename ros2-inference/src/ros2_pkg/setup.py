@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'rtsp_bridge'
+package_name = 'inference_node'
 
 setup(
     name=package_name,
@@ -14,11 +14,11 @@ setup(
     zip_safe=True,
     maintainer='Maintainer',
     maintainer_email='maintainer@example.com',
-    description='RTSP to ROS2 Image Topic Bridge',
+    description='YOLOv11 inference node',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'rtsp_bridge_node = rtsp_bridge.rtsp_bridge_node:main',
+            'inference_node = inference_node.inference_node:main',
         ],
     },
 )
