@@ -68,7 +68,7 @@ services:
       CONFIDENCE_THRESHOLD: "0.4"
       INFERENCE_WIDTH: "640"
       INFERENCE_HEIGHT: "640"
-      TARGET_FPS: "15"
+      TARGET_FPS: "30"
       DEVICE: "auto"                    # auto-detects CUDA
       VERBOSE: "false"
       ROS_DOMAIN_ID: "0"

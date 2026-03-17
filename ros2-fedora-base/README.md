@@ -1,23 +1,42 @@
 # ros2-fedora-base
 
-Common base image for all ROS2 containerized services. Built on `fedora:42`.
+Common base image for all ROS2 containerized services. Not run directly.
+
+Built on `fedora:42` with the `tavie/ros2` COPR repository for ROS2 Kilted packages.
 
 ## What it includes
 
-- ROS2 Kilted via COPR (`tavie/ros2`)
-- `ros-kilted-vision-msgs` — shared message types for detections
-- `ros-kilted-rmw-cyclonedds-cpp` — DDS middleware
-- Dev tools (`cmake`, `gcc`, `colcon`, `rosdep`, `flake8`, etc.)
+- ROS2 Kilted (`ros-kilted-ros-base`, `ros-kilted-rmw-cyclonedds-cpp`, `ros-kilted-vision-msgs`)
+- `python3-colcon-common-extensions` — build tool for ROS2 packages
+- Dev tools: `cmake`, `gcc-c++`, `git`, `make`, `python3-rosdep`, `flake8`, etc.
 - OpenSSH server with X11 forwarding enabled
-- `fastdds.xml` — disables shared memory transport (required for cross-container communication)
+- `fastdds.xml` — disables FastDDS shared memory transport (required for cross-container DDS communication)
 
 ## Baked-in environment variables
 
-| Variable                        | Value                     | Reason |
-|---------------------------------|---------------------------|--------|
-| `ROS_HOME`                      | `/tmp/ros_home`           | Default resolves to non-writable `/ros2_ws/.ros` |
-| `RMW_IMPLEMENTATION`            | `rmw_fastrtps_cpp`        | All services must use the same RMW |
-| `FASTDDS_DEFAULT_PROFILES_FILE` | `/etc/ros2/fastdds.xml`   | Disables shared memory across containers |
+| Variable                        | Value                      | Reason |
+|---------------------------------|----------------------------|--------|
+| `ROS_HOME`                      | `/tmp/ros_home`            | `/ros2_ws/.ros` is not writable at runtime |
+| `RMW_IMPLEMENTATION`            | `rmw_fastrtps_cpp`         | All containers must use the same RMW |
+| `FASTDDS_DEFAULT_PROFILES_FILE` | `/etc/ros2/fastdds.xml`    | Disables shared memory — containers have separate mount namespaces even with `--network host` |
+
+## Why FastDDS shared memory is disabled
+
+FastDDS uses shared memory by default for localhost communication.
+Shared memory segments created in one container are not accessible from
+another container even with `--network host` (separate mount namespaces).
+This causes topic discovery to work but data to never arrive. The bundled
+`fastdds.xml` forces UDPv4 transport which works correctly across containers.
+
+## Structure
+
+```
+ros2-fedora-base/
+├── README.md
+└── src/
+    ├── Containerfile
+    └── fastdds.xml
+```
 
 ## Build
 
@@ -26,11 +45,4 @@ cd ros2-fedora-base/src
 podman build -t ros2-fedora-base:latest .
 ```
 
-## Build order
-
-```bash
-cd ros2-fedora-base/src  && podman build -t ros2-fedora-base:latest .
-cd ros2-inference/src    && podman build -t ros2-inference:latest .
-cd ros2-rosbridge/src    && podman build -t ros2-rosbridge:latest .
-cd ros2-broker-watch/src       && podman build -t ros2-broker-watch:latest .   # optional
-```
+> Must be built before any other service image.

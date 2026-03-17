@@ -1,12 +1,12 @@
-FROM ros:jazzy
+FROM ros:kilted
 
 # ── rosbridge_suite ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y \
-    ros-jazzy-rosbridge-server \
-    ros-jazzy-rosbridge-library \
-    ros-jazzy-rosapi \
-    ros-jazzy-vision-msgs \
-    ros-jazzy-rosidl-pycommon
+    ros-kilted-rosbridge-server \
+    ros-kilted-rosbridge-library \
+    ros-kilted-rosapi \
+    ros-kilted-vision-msgs \
+    ros-kilted-rosidl-pycommon
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh

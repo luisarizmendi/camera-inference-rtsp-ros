@@ -15,6 +15,13 @@ webRTCICEUDPMuxAddress: :8189
 #   -e MTX_WEBRTCADDITIONALHOSTS=192.168.1.41
 webRTCAdditionalHosts: []
 
+# Increase write queue per session.
+# The default (512) fills up when a slow consumer (e.g. inference at 10fps)
+# reads from a 30fps stream. Frames are still dropped when the queue is full,
+# but the warning threshold is pushed back significantly.
+# This does NOT increase latency for fast consumers (WebRTC browser).
+writeQueueSize: 2048
+
 # No authentication
 authInternalUsers:
   - user: any
@@ -30,6 +37,5 @@ authInternalUsers:
 
 paths:
   all_others:
-    # Deshabilita el playback (grabación y seek): el stream es siempre live,
-    # los clientes no pueden rebobinar ni pausar desde el servidor.
+    # Always live — no recording or server-side seek
     record: no

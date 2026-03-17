@@ -2,7 +2,7 @@
 set -e
 
 # Source ROS2
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/kilted/setup.bash
 
 echo "Starting rosbridge on port ${ROSBRIDGE_PORT}"
 
