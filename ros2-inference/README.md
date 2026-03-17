@@ -89,3 +89,17 @@ podman run --rm --network host \
   -e TARGET_FPS="30" \
   ros2-inference:latest
 ```
+
+
+With NVIDIA GPU and custom model from file:
+
+```bash
+podman run --rm --network host \
+  --security-opt=label=disable --device nvidia.com/gpu=all \
+  -e RTSP_URL="rtsp://192.168.1.41:8554/stream" \
+  -e DEVICE="cuda" \
+  -e TARGET_FPS="30" \
+  -e YOLO_MODEL=hardhat.pt \
+  -v /home/luis/models:/opt/yolo_models:Z \
+  ros2-inference:latest
+```
