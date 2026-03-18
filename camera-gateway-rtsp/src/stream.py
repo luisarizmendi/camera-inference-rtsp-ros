@@ -136,33 +136,62 @@ def device_has_image(device: str) -> "dict | None":
     per_attempt = DEVICE_PROBE_TIMEOUT + extra
 
     log.info("Probing %s (per-attempt timeout %d s) …", device, per_attempt)
-    for fmt in formats:
-        cmd = ["ffmpeg", "-loglevel", "error", "-f", "v4l2"]
-        if fmt:
-            cmd += ["-input_format", fmt]
-        if native_fps:
-            cmd += ["-framerate", native_fps]
-        if native_size:
-            cmd += ["-video_size", native_size]
-        cmd += ["-i", device, "-vframes", "1", "-f", "null", "-"]
-        try:
-            result = subprocess.run(cmd, timeout=per_attempt,
-                                    capture_output=True, text=True)
-            if result.returncode == 0:
-                log.info("Device %s working (format=%s size=%s fps=%s)",
-                         device, fmt or "auto", native_size or "?", native_fps or "?")
-                return {"fmt": fmt or native_fmt, "size": native_size, "fps": native_fps}
-            err_lines = (result.stderr or "").strip().splitlines()
-            if err_lines:
-                for err_line in err_lines:
-                    log.warning("  ffmpeg [%s fmt=%s]: %s", device, fmt or "auto", err_line)
+
+    # VIDIOC_STREAMON returns EPROTO when the device is still held or resetting
+    # after a previous ffmpeg process exited.  We retry the whole format sweep
+    # up to PROBE_MAX_RETRIES times with PROBE_RETRY_DELAY seconds between
+    # attempts before concluding the device is genuinely unusable.
+    PROBE_MAX_RETRIES = 4
+    PROBE_RETRY_DELAY = 3   # seconds
+
+    for attempt in range(1, PROBE_MAX_RETRIES + 1):
+        eproto_count = 0
+        for fmt in formats:
+            cmd = ["ffmpeg", "-loglevel", "error", "-f", "v4l2"]
+            if fmt:
+                cmd += ["-input_format", fmt]
+            if native_fps:
+                cmd += ["-framerate", native_fps]
+            if native_size:
+                cmd += ["-video_size", native_size]
+            cmd += ["-i", device, "-vframes", "1", "-f", "null", "-"]
+            try:
+                result = subprocess.run(cmd, timeout=per_attempt,
+                                        capture_output=True, text=True)
+                if result.returncode == 0:
+                    log.info("Device %s working (format=%s size=%s fps=%s)",
+                             device, fmt or "auto", native_size or "?", native_fps or "?")
+                    return {"fmt": fmt or native_fmt, "size": native_size, "fps": native_fps}
+                err_lines = (result.stderr or "").strip().splitlines()
+                is_eproto = any("Protocol error" in l or "EPROTO" in l for l in err_lines)
+                if is_eproto:
+                    eproto_count += 1
+                    log.debug("  ffmpeg [%s fmt=%s]: Protocol error (device resetting?)",
+                              device, fmt or "auto")
+                else:
+                    for err_line in err_lines:
+                        log.warning("  ffmpeg [%s fmt=%s]: %s", device, fmt or "auto", err_line)
+            except subprocess.TimeoutExpired:
+                log.warning("Probe timed out for %s with format=%s (timeout=%d s) — "
+                            "raise DEVICE_PROBE_TIMEOUT if the camera is genuinely slow",
+                            device, fmt or "auto", per_attempt)
+
+        # If every format returned EPROTO, the device is still resetting.
+        # Wait and retry the whole sweep.
+        if eproto_count == len(formats):
+            if attempt < PROBE_MAX_RETRIES:
+                log.info("Device %s returned Protocol error on all formats "
+                         "(attempt %d/%d) — device still resetting, "
+                         "retrying in %d s …",
+                         device, attempt, PROBE_MAX_RETRIES, PROBE_RETRY_DELAY)
+                time.sleep(PROBE_RETRY_DELAY)
             else:
-                log.warning("  ffmpeg [%s fmt=%s]: exited non-zero, no stderr",
-                            device, fmt or "auto")
-        except subprocess.TimeoutExpired:
-            log.warning("Probe timed out for %s with format=%s (timeout=%d s) — "
-                        "raise DEVICE_PROBE_TIMEOUT if the camera is genuinely slow",
-                        device, fmt or "auto", per_attempt)
+                log.warning("Device %s returned Protocol error on all formats "
+                            "after %d attempts — giving up",
+                            device, PROBE_MAX_RETRIES)
+        else:
+            # At least one format gave a non-EPROTO error; no point retrying.
+            break
 
     log.info("No image from %s after trying all formats", device)
     return None
@@ -220,57 +249,69 @@ def stream_camera(device: str, native: dict) -> None:
     if not CAM_RESOLUTION and resolution:
         log.info("CAM_RESOLUTION not set — using device native size=%s", resolution)
 
-    cmd = [
-        "ffmpeg", "-loglevel", "warning",
-        "-f", "v4l2",
-        "-rtbufsize", CAM_RTBUFSIZE,
-        # Recover gracefully from USB buffer overflows instead of corrupting
-        # frames.  Critical for high-resolution YUYV cameras (e.g. Arducam
-        # 16MP at 1600x1200) where the uncompressed pixel data (~19 MB/s) can
-        # briefly saturate the USB bus and cause the kernel ring buffer to fill.
-        "-drop_pkts_on_overflow", "1",
-        # Use the wall clock rather than the v4l2 DTS.  When frames are
-        # dropped due to overflow the v4l2 timestamps jump, which confuses the
-        # encoder and produces artefacts; wall-clock timestamps stay monotonic.
-        "-use_wallclock_as_timestamps", "1",
-    ]
-    if framerate:
-        cmd += ["-framerate", framerate]
-    if resolution:
-        cmd += ["-video_size", resolution]
-    cmd += [
-        "-i", device,
-        "-c:v", CAM_VIDEO_CODEC,
-    ]
-    if CAM_VIDEO_CODEC == "libx264":
-        cmd += h264_extra_flags()
-        cmd += ["-preset", CAM_PRESET, "-tune", CAM_TUNE]
-    cmd += ["-b:v", CAM_VIDEO_BITRATE]
-    if has_audio:
-        cmd += ["-c:a", CAM_AUDIO_CODEC, "-b:a", CAM_AUDIO_BITRATE]
-    else:
-        cmd += ["-an"]
-    cmd += ["-f", "rtsp", url]
+    # Optional v4l2 flags that help with USB buffer overflows on high-bandwidth
+    # cameras (e.g. Arducam 16MP YUYV at ~19 MB/s).  They were added in
+    # ffmpeg 4.4; older builds reject them with "Option not found" (exit 8).
+    # We try with them first and silently drop them if this build lacks support.
+    OVERFLOW_FLAGS = ["-drop_pkts_on_overflow", "1",
+                      "-use_wallclock_as_timestamps", "1"]
+    use_overflow_flags = True   # optimistically try on first run
 
-    # ENODEV (exit 1 from ffmpeg when the kernel reports "No such device") means
-    # the USB device physically disconnected or the UVC driver gave up.
-    # In that case return immediately so main() can re-probe all devices rather
-    # than hammering a dead node in a tight loop.
-    ENODEV_SENTINEL = "No such device"
+    def _build_cmd(overflow: bool) -> list[str]:
+        c = [
+            "ffmpeg", "-loglevel", "warning",
+            "-f", "v4l2",
+            "-rtbufsize", CAM_RTBUFSIZE,
+        ]
+        if overflow:
+            c += OVERFLOW_FLAGS
+        if framerate:
+            c += ["-framerate", framerate]
+        if resolution:
+            c += ["-video_size", resolution]
+        c += ["-i", device, "-c:v", CAM_VIDEO_CODEC]
+        if CAM_VIDEO_CODEC == "libx264":
+            c += h264_extra_flags()
+            c += ["-preset", CAM_PRESET, "-tune", CAM_TUNE]
+        c += ["-b:v", CAM_VIDEO_BITRATE]
+        c += (["-c:a", CAM_AUDIO_CODEC, "-b:a", CAM_AUDIO_BITRATE]
+              if has_audio else ["-an"])
+        c += ["-f", "rtsp", url]
+        return c
+
+    ENODEV_SENTINEL    = "No such device"
+    OPT_NOT_FOUND      = "Option not found"
 
     while True:
+        cmd = _build_cmd(use_overflow_flags)
         log.info("Running: %s", " ".join(cmd))
-        proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
-        # Echo stderr so it still appears in the container log
-        if proc.stderr:
-            for line in proc.stderr.strip().splitlines():
+        stderr_lines: list[str] = []
+        saw_enodev = False
+        saw_opt_not_found = False
+
+        with subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True) as proc:
+            for line in proc.stderr:
+                line = line.rstrip()
+                if not line:
+                    continue
+                stderr_lines.append(line)
                 log.warning("  ffmpeg: %s", line)
+                if ENODEV_SENTINEL in line:
+                    saw_enodev = True
+                if OPT_NOT_FOUND in line:
+                    saw_opt_not_found = True
+            proc.wait()
 
         if proc.returncode == 0:
             break
 
-        # Device disappeared — return so main() re-probes instead of looping.
-        if proc.stderr and ENODEV_SENTINEL in proc.stderr:
+        if saw_opt_not_found and use_overflow_flags:
+            log.warning("Overflow flags not supported by this ffmpeg build — "
+                        "retrying without them (USB buffer overflow protection disabled)")
+            use_overflow_flags = False
+            continue   # retry immediately, no sleep
+
+        if saw_enodev:
             log.error("Camera %s disappeared (ENODEV). Will re-probe in 5 s …", device)
             time.sleep(5)
             return   # signal main() to call find_working_camera() again
