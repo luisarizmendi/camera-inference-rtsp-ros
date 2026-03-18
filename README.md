@@ -94,7 +94,8 @@ camera-inference-demo/
 |
 └── _run_/                           <- ready-to-use runtime files
     ├── README.md
-    ├── compose.yml                  <- Podman Compose stack
+    └── compose/ 
+        └── compose.yml                  <- Podman Compose stack
     └── quadlets/                    <- systemd Podman quadlet units
         ├── camera-inference.network
         ├── camera-gateway-rtsp.container
@@ -197,7 +198,7 @@ Quick start with Podman Compose:
 
 ```bash
 # Edit RTSP_URL and MTX_WEBRTCADDITIONALHOSTS to your host LAN IP first
-podman compose -f _run_/compose.yml up -d
+podman compose -f _run_/compose/compose.yml up -d
 # Open http://<host-ip>:8080
 ```
 

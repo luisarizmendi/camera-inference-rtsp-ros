@@ -41,7 +41,7 @@ pip install podman-compose
 
 ### Configure
 
-Open `compose.yml` and update the two values marked with `########`:
+Open `compose/compose.yml` and update the two values marked with `########`:
 
 ```yaml
 # In ros2-inference:
@@ -60,7 +60,7 @@ devices:
 ### Start
 
 ```bash
-cd _run_
+cd _run_/compose
 podman compose up -d
 ```
 
