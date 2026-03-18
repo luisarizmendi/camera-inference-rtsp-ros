@@ -66,9 +66,16 @@ BUILT_IMAGES=()
 
 build_image() {
   local arch=$1
+  local tag="${REGISTRY}/${IMAGE_NAME}:${arch}"
+
   echo "→ Building for $arch..."
-  podman build --platform "linux/${arch}" -t "${REGISTRY}/${IMAGE_NAME}:${arch}" .
-  BUILT_IMAGES+=("${REGISTRY}/${IMAGE_NAME}:${arch}")
+
+  # Remove existing tag to avoid conflicts
+  podman rmi "$tag" 2>/dev/null || true
+
+  podman build --platform "linux/${arch}" -t "$tag" .
+
+  BUILT_IMAGES+=("$tag")
 }
 
 # Always build native
@@ -92,24 +99,17 @@ ensure_manifest() {
   local manifest=$1
 
   if [[ "$FORCE_MANIFEST_RESET" == true ]]; then
-    echo "→ Force reset enabled: deleting $manifest if exists"
+    echo "→ Force reset: $manifest"
     podman manifest rm "$manifest" 2>/dev/null || true
-    podman manifest create  --replace  "$manifest"
-    return
-  fi
-
-  echo "→ Ensuring manifest exists: $manifest"
-  if podman manifest inspect "$manifest" >/dev/null 2>&1; then
-    echo "  Manifest exists locally"
   else
-    echo "  Trying to pull remote manifest..."
-    if podman manifest pull "docker://$manifest" >/dev/null 2>&1; then
-      echo "  Pulled existing remote manifest"
-    else
-      echo "  Creating new manifest"
-      podman manifest create  --replace  "$manifest"
+    # Ensure no broken local state
+    if ! podman manifest inspect "$manifest" >/dev/null 2>&1; then
+      podman manifest rm "$manifest" 2>/dev/null || true
     fi
   fi
+
+  echo "→ Creating manifest: $manifest"
+  podman manifest create "$manifest"
 }
 
 add_images_to_manifest() {
@@ -118,9 +118,12 @@ add_images_to_manifest() {
   for img in "${BUILT_IMAGES[@]}"; do
     echo "→ Adding $img to $manifest"
 
-    # Remove same-arch image first to avoid duplicates
     arch=$(echo "$img" | awk -F: '{print $2}')
-    podman manifest remove "$manifest" "docker://${REGISTRY}/${IMAGE_NAME}:${arch}" 2>/dev/null || true
+
+    # Remove same-arch entry if exists (ignore errors)
+    podman manifest remove "$manifest" \
+      "docker://${REGISTRY}/${IMAGE_NAME}:${arch}" \
+      2>/dev/null || true
 
     podman manifest add "$manifest" "$img"
   done
