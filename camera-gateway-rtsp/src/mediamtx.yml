@@ -3,23 +3,19 @@
 rtspAddress:    :8554
 rtmpAddress:    :1935
 hlsAddress:     :8888
-webRTCAddress:  :8889
+webrtcAddress:  :8889
 srtAddress:     :8890
 
-# WebRTC ICE UDP port for media
-webRTCICEUDPMuxAddress: :8189
+# WebRTC local UDP listener for ICE
+webrtcLocalUDPAddress: :8189
 
 # IMPORTANT: set this to the LAN IP of the host running the container
 # so that browsers on the same network can reach the server for WebRTC.
 # Can be overridden with the MTX_WEBRTCADDITIONALHOSTS env var at runtime:
 #   -e MTX_WEBRTCADDITIONALHOSTS=192.168.1.41
-webRTCAdditionalHosts: []
+webrtcAdditionalHosts: []
 
 # Increase write queue per session.
-# The default (512) fills up when a slow consumer (e.g. inference at 10fps)
-# reads from a 30fps stream. Frames are still dropped when the queue is full,
-# but the warning threshold is pushed back significantly.
-# This does NOT increase latency for fast consumers (WebRTC browser).
 writeQueueSize: 2048
 
 # No authentication
@@ -37,5 +33,5 @@ authInternalUsers:
 
 paths:
   all_others:
-    # Always live — no recording or server-side seek
+    # Always live — no recording or server‑side seek
     record: no
