@@ -40,7 +40,7 @@ EOF
 WORKDIR /ros2_ws/src/inference_node
 COPY ros2_pkg/ ./
 WORKDIR /ros2_ws
-RUN /bin/bash -c "source /opt/ros/kilted/setup.bash && colcon build --symlink-install"
+RUN /bin/bash -c "source /opt/ros/kilted/setup.bash && colcon build"
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
