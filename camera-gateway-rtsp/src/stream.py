@@ -224,6 +224,15 @@ def stream_camera(device: str, native: dict) -> None:
         "ffmpeg", "-loglevel", "warning",
         "-f", "v4l2",
         "-rtbufsize", CAM_RTBUFSIZE,
+        # Recover gracefully from USB buffer overflows instead of corrupting
+        # frames.  Critical for high-resolution YUYV cameras (e.g. Arducam
+        # 16MP at 1600x1200) where the uncompressed pixel data (~19 MB/s) can
+        # briefly saturate the USB bus and cause the kernel ring buffer to fill.
+        "-drop_pkts_on_overflow", "1",
+        # Use the wall clock rather than the v4l2 DTS.  When frames are
+        # dropped due to overflow the v4l2 timestamps jump, which confuses the
+        # encoder and produces artefacts; wall-clock timestamps stay monotonic.
+        "-use_wallclock_as_timestamps", "1",
     ]
     if framerate:
         cmd += ["-framerate", framerate]
@@ -243,11 +252,29 @@ def stream_camera(device: str, native: dict) -> None:
         cmd += ["-an"]
     cmd += ["-f", "rtsp", url]
 
+    # ENODEV (exit 1 from ffmpeg when the kernel reports "No such device") means
+    # the USB device physically disconnected or the UVC driver gave up.
+    # In that case return immediately so main() can re-probe all devices rather
+    # than hammering a dead node in a tight loop.
+    ENODEV_SENTINEL = "No such device"
+
     while True:
         log.info("Running: %s", " ".join(cmd))
-        proc = subprocess.run(cmd)
+        proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+        # Echo stderr so it still appears in the container log
+        if proc.stderr:
+            for line in proc.stderr.strip().splitlines():
+                log.warning("  ffmpeg: %s", line)
+
         if proc.returncode == 0:
             break
+
+        # Device disappeared — return so main() re-probes instead of looping.
+        if proc.stderr and ENODEV_SENTINEL in proc.stderr:
+            log.error("Camera %s disappeared (ENODEV). Will re-probe in 5 s …", device)
+            time.sleep(5)
+            return   # signal main() to call find_working_camera() again
+
         log.warning("Camera stream exited with code %d, restarting in 3 s …",
                     proc.returncode)
         time.sleep(3)
@@ -312,12 +339,18 @@ def main() -> None:
     log.info("RTSP streamer starting up.")
     log.info("Target URL: %s", rtsp_url())
 
-    camera, native_params = find_working_camera()
-    if camera:
-        stream_camera(camera, native_params)
-    else:
-        log.info("No working camera found. Falling back to video files in %s.", VID_DIR)
-        stream_videos()
+    while True:
+        camera, native_params = find_working_camera()
+        if camera:
+            stream_camera(camera, native_params)
+            # stream_camera returns only when the camera is gone or cleanly done.
+            # Loop back to re-probe — the device may reconnect or another camera
+            # may become available.
+            log.info("Returned from stream_camera. Re-probing devices …")
+        else:
+            log.info("No working camera found. Falling back to video files in %s.", VID_DIR)
+            stream_videos()
+            break   # stream_videos() only returns on empty dir (sys.exit) or never
 
 
 if __name__ == "__main__":
