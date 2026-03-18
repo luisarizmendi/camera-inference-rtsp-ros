@@ -1,4 +1,4 @@
-FROM nginx:alpine
+FROM docker.io/library/nginx:alpine
 
 # Copy the viewer HTML and our complete nginx config
 COPY index.html    /usr/share/nginx/html/index.html

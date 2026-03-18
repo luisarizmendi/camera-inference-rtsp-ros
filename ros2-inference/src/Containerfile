@@ -1,4 +1,5 @@
-FROM ros:kilted
+FROM docker.io/library/ros:kilted
+
 
 # ── Inference dependencies ────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y \
@@ -12,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 # ── Python: Ultralytics YOLOv11 + CUDA-optional torch ────────────────────────
 # if CUDA is available at runtime it is used automatically
 # via the device auto-detection in inference_node.py.
-RUN pip3 install --break-system-packages \
+RUN pip3 install --break-system-packages --ignore-installed \
     ultralytics \
     torch \
     torchvision \
