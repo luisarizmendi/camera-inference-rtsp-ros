@@ -5,21 +5,31 @@ set -e
 REGISTRY="quay.io/luisarizmendi"
 CROSS_BUILD=false
 PUSH=true
+FORCE_MANIFEST_RESET=false
 
 # --- Parse args ---
+FORWARD_ARGS=()
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cross)
       CROSS_BUILD=true
+      FORWARD_ARGS+=("$1")
       shift
       ;;
     --no-push)
       PUSH=false
+      FORWARD_ARGS+=("$1")
       shift
       ;;
     --registry)
       REGISTRY="$2"
+      FORWARD_ARGS+=("$1" "$2")
       shift 2
+      ;;
+    --force-manifest-reset)
+      FORCE_MANIFEST_RESET=true
+      shift
       ;;
     *)
       echo "Unknown option: $1"
@@ -47,6 +57,7 @@ echo "Image: ${REGISTRY}/${IMAGE_NAME}"
 echo "Host arch: ${HOST_ARCH}"
 echo "Cross build: ${CROSS_BUILD}"
 echo "Push: ${PUSH}"
+echo "Force manifest reset: ${FORCE_MANIFEST_RESET}"
 echo "========================================"
 echo ""
 
@@ -76,23 +87,57 @@ fi
 MANIFEST_PROD="${REGISTRY}/${IMAGE_NAME}:prod"
 MANIFEST_LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
 
+# --- Functions to handle manifests ---
+ensure_manifest() {
+  local manifest=$1
+
+  if [[ "$FORCE_MANIFEST_RESET" == true ]]; then
+    echo "→ Force reset enabled: deleting $manifest if exists"
+    podman manifest rm "$manifest" 2>/dev/null || true
+    podman manifest create "$manifest"
+    return
+  fi
+
+  echo "→ Ensuring manifest exists: $manifest"
+  if podman manifest inspect "$manifest" >/dev/null 2>&1; then
+    echo "  Manifest exists locally"
+  else
+    echo "  Trying to pull remote manifest..."
+    if podman manifest pull "docker://$manifest" >/dev/null 2>&1; then
+      echo "  Pulled existing remote manifest"
+    else
+      echo "  Creating new manifest"
+      podman manifest create "$manifest"
+    fi
+  fi
+}
+
+add_images_to_manifest() {
+  local manifest=$1
+
+  for img in "${BUILT_IMAGES[@]}"; do
+    echo "→ Adding $img to $manifest"
+
+    # Remove same-arch image first to avoid duplicates
+    arch=$(echo "$img" | awk -F: '{print $2}')
+    podman manifest remove "$manifest" "docker://${REGISTRY}/${IMAGE_NAME}:${arch}" 2>/dev/null || true
+
+    podman manifest add "$manifest" "$img"
+  done
+}
+
 # --- Push logic ---
 if [[ "$PUSH" == true ]]; then
   echo ""
-  echo "→ Recreating manifests (avoiding duplicates)..."
+  echo "→ Preparing manifests..."
 
-  podman manifest rm "$MANIFEST_PROD" 2>/dev/null || true
-  podman manifest create "$MANIFEST_PROD"
-
-  podman manifest rm "$MANIFEST_LATEST" 2>/dev/null || true
-  podman manifest create "$MANIFEST_LATEST"
+  ensure_manifest "$MANIFEST_PROD"
+  ensure_manifest "$MANIFEST_LATEST"
 
   echo ""
-  echo "→ Adding images to manifests..."
-  for img in "${BUILT_IMAGES[@]}"; do
-    podman manifest add "$MANIFEST_PROD" "$img"
-    podman manifest add "$MANIFEST_LATEST" "$img"
-  done
+  echo "→ Updating manifests..."
+  add_images_to_manifest "$MANIFEST_PROD"
+  add_images_to_manifest "$MANIFEST_LATEST"
 
   echo ""
   echo "→ Pushing images..."
