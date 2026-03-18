@@ -71,7 +71,7 @@ build_image() {
   echo "→ Building for $arch..."
 
   # Remove existing tag to avoid conflicts
-  podman rmi "$tag" 2>/dev/null || true
+  #podman rmi "$tag" 2>/dev/null || true
 
   podman build --platform "linux/${arch}" -t "$tag" .
 
@@ -98,15 +98,13 @@ MANIFEST_LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
 ensure_manifest() {
   local manifest=$1
 
-  if [[ "$FORCE_MANIFEST_RESET" == true ]]; then
-    echo "→ Force reset: $manifest"
-    podman manifest rm "$manifest" 2>/dev/null || true
-  else
-    # Ensure no broken local state
-    if ! podman manifest inspect "$manifest" >/dev/null 2>&1; then
-      podman manifest rm "$manifest" 2>/dev/null || true
-    fi
-  fi
+  echo "→ Cleaning existing tag (image or manifest): $manifest"
+
+  # Remove manifest if exists
+  podman manifest rm "$manifest" 2>/dev/null || true
+
+  # Remove regular image if exists (THIS is what fixes your error)
+  podman rmi "$manifest" 2>/dev/null || true
 
   echo "→ Creating manifest: $manifest"
   podman manifest create "$manifest"

@@ -1,20 +1,12 @@
-FROM ros2-fedora-base:latest
-
-# ── RPM Fusion — required for full H264 support in ffmpeg/OpenCV ──────────────
-RUN dnf install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm" \
-    && dnf -y upgrade \
-    && dnf clean all
+FROM ros:kilted
 
 # ── Inference dependencies ────────────────────────────────────────────────────
-RUN dnf install -y \
+RUN apt-get update && apt-get install -y \
     ros-kilted-cv-bridge \
     ros-kilted-vision-msgs \
     python3-opencv \
     ffmpeg \
-    ffmpeg-libs \
-    && dnf clean all
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Python: Ultralytics YOLOv11 + CUDA-optional torch ────────────────────────
 # if CUDA is available at runtime it is used automatically
@@ -36,7 +28,6 @@ RUN mkdir -p /tmp/yolo_config/Ultralytics && chmod -R 777 /tmp/yolo_config && mk
 RUN python3 - <<EOF
 from ultralytics import YOLO
 import shutil, os
-
 m = YOLO('yolo11n.pt')
 src = m.ckpt_path
 shutil.copy(src, '/opt/yolo_models/yolo11n.pt')
@@ -46,9 +37,8 @@ EOF
 # ── ROS2 package ──────────────────────────────────────────────────────────────
 WORKDIR /ros2_ws/src/inference_node
 COPY ros2_pkg/ ./
-
 WORKDIR /ros2_ws
-RUN /bin/bash -c "source /usr/lib64/ros2-kilted/setup.bash && colcon build --symlink-install"
+RUN /bin/bash -c "source /opt/ros/kilted/setup.bash && colcon build --symlink-install"
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
@@ -69,5 +59,4 @@ ENV ROS_DOMAIN_ID=0
 
 # Use /tmp as working dir so any runtime file writes succeed
 WORKDIR /tmp
-
 ENTRYPOINT ["/entrypoint.sh"]
