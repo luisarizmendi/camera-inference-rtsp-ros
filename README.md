@@ -20,7 +20,7 @@ camera-gateway-rtsp  ── Fedora + FFmpeg + MediaMTX
     │
     ├── WebRTC  :8889 (WHEP) ──────────────────────────────► browser <video>  (~150 ms)
     │
-    └── RTSP    :8554 ──► ros2-inference  (Ubuntu + CUDA + YOLOv11)
+    └── RTSP    :8554 ──► ros2-inference  (ROS + CUDA + YOLOv11)
                                │
                                │  /detections  (vision_msgs/Detection2DArray)
                                ▼
