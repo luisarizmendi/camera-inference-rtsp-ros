@@ -93,77 +93,83 @@ for img in "${BUILT_IMAGES[@]}"; do
   BUILT_ARCHES+=("$(basename "$img" | sed 's/.*://')")
 done
 
-# --- Clean local manifest and recreate it, preserving remote arches we didn't build ---
-#
-# Logic:
-#   1. If FORCE_MANIFEST_RESET=true  → start from scratch (original behaviour).
-#   2. Otherwise, inspect the existing remote manifest and re-add any arch-specific
-#      tags that were NOT rebuilt this run, so they are carried forward.
-#
-prepare_manifest() {
-  local manifest=$1
+# --- Pull remote images for arches we did NOT build, so they land in local storage
+#     and can be reliably included in the new manifest.
+#     Returns nothing; populates PRESERVED_IMAGES array.
+PRESERVED_IMAGES=()
 
-  # Remove any stale local copy
-  podman manifest rm  "$manifest" 2>/dev/null || true
-  podman rmi --force  "$manifest" 2>/dev/null || true
-
-  echo "→ Creating manifest: $manifest"
-  podman manifest create "$manifest"
-
+pull_missing_arches() {
   if [[ "$FORCE_MANIFEST_RESET" == true ]]; then
     echo "  (force-manifest-reset: skipping preservation of existing remote arches)"
     return
   fi
 
-  # Pull the existing remote manifest and harvest arches we didn't rebuild
-  echo "→ Checking remote manifest for arches to preserve: $manifest"
+  # Use the :prod manifest as the source of truth for what already exists remotely.
+  # (Both prod and latest should be in sync, so one inspect is enough.)
+  echo "→ Inspecting remote manifest for arches to preserve: ${MANIFEST_PROD}"
   local inspect_json
-  if inspect_json=$(podman manifest inspect "docker://${manifest}" 2>/dev/null); then
-    # Extract every architecture listed in the remote manifest
-    local remote_arches
-    remote_arches=$(echo "$inspect_json" \
-      | python3 -c "
+  if ! inspect_json=$(podman manifest inspect "docker://${MANIFEST_PROD}" 2>/dev/null); then
+    echo "  (no existing remote manifest found — starting fresh)"
+    return
+  fi
+
+  local remote_arches
+  remote_arches=$(echo "$inspect_json" \
+    | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-arches = set()
 for m in data.get('manifests', []):
     arch = m.get('platform', {}).get('architecture')
     if arch:
-        arches.add(arch)
-for a in sorted(arches):
-    print(a)
+        print(arch)
 " 2>/dev/null || true)
 
-    for remote_arch in $remote_arches; do
-      # Skip arches we just rebuilt — those will be added fresh below
-      local rebuilt=false
-      for built_arch in "${BUILT_ARCHES[@]}"; do
-        if [[ "$built_arch" == "$remote_arch" ]]; then
-          rebuilt=true
-          break
-        fi
-      done
-
-      if [[ "$rebuilt" == false ]]; then
-        local arch_tag="${REGISTRY}/${IMAGE_NAME}:${remote_arch}"
-        echo "  → Preserving existing remote arch '${remote_arch}' from ${arch_tag}"
-        podman manifest add "$manifest" "docker://${arch_tag}" || \
-          echo "  ⚠️  Could not add ${arch_tag} — skipping (image may not exist as a standalone tag)"
-      else
-        echo "  → Arch '${remote_arch}' was rebuilt this run — will be replaced"
+  for remote_arch in $remote_arches; do
+    # Skip arches we just rebuilt — we'll use the freshly built local image
+    local rebuilt=false
+    for built_arch in "${BUILT_ARCHES[@]}"; do
+      if [[ "$built_arch" == "$remote_arch" ]]; then
+        rebuilt=true
+        break
       fi
     done
-  else
-    echo "  (no existing remote manifest found — starting fresh)"
-  fi
+
+    if [[ "$rebuilt" == true ]]; then
+      echo "  → Arch '${remote_arch}' was rebuilt this run — skipping pull"
+      continue
+    fi
+
+    local arch_tag="${REGISTRY}/${IMAGE_NAME}:${remote_arch}"
+    echo "  → Pulling remote arch '${remote_arch}' to preserve it: ${arch_tag}"
+    if podman pull --platform "linux/${remote_arch}" "${arch_tag}"; then
+      PRESERVED_IMAGES+=("$arch_tag")
+    else
+      echo "  ⚠️  Could not pull ${arch_tag} — skipping (will not appear in new manifest)"
+    fi
+  done
 }
 
-# --- Add newly built images to the manifest via their registry digests ---
-add_built_images_to_manifest() {
+# --- Build a fresh local manifest from: preserved pulled images + newly built images ---
+build_manifest() {
   local manifest=$1
+
+  # Remove any stale local copy
+  podman manifest rm "$manifest" 2>/dev/null || true
+  podman rmi --force "$manifest" 2>/dev/null || true
+
+  echo "→ Creating manifest: $manifest"
+  podman manifest create "$manifest"
+
+  # Add preserved (pulled) images first
+  for img in "${PRESERVED_IMAGES[@]}"; do
+    echo "  → Adding preserved arch image: $img"
+    podman manifest add "$manifest" "$img"
+  done
+
+  # Add freshly built images
   for img in "${BUILT_IMAGES[@]}"; do
-    echo "→ Adding $img to $manifest"
-    podman manifest add "$manifest" "docker://${img}"
+    echo "  → Adding newly built image: $img"
+    podman manifest add "$manifest" "$img"
   done
 }
 
@@ -176,14 +182,13 @@ if [[ "$PUSH" == true ]]; then
   done
 
   echo ""
-  echo "→ Preparing manifests (merging with existing remote)..."
-  prepare_manifest "$MANIFEST_PROD"
-  prepare_manifest "$MANIFEST_LATEST"
+  echo "→ Pulling remote arches we didn't build (to preserve them in the manifest)..."
+  pull_missing_arches
 
   echo ""
-  echo "→ Adding newly built images to manifests..."
-  add_built_images_to_manifest "$MANIFEST_PROD"
-  add_built_images_to_manifest "$MANIFEST_LATEST"
+  echo "→ Building merged manifests..."
+  build_manifest "$MANIFEST_PROD"
+  build_manifest "$MANIFEST_LATEST"
 
   echo ""
   echo "→ Pushing manifest: prod"
