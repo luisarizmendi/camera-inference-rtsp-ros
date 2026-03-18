@@ -9,7 +9,6 @@ FORCE_MANIFEST_RESET=false
 
 # --- Parse args ---
 FORWARD_ARGS=()
-
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cross)
@@ -67,14 +66,8 @@ BUILT_IMAGES=()
 build_image() {
   local arch=$1
   local tag="${REGISTRY}/${IMAGE_NAME}:${arch}"
-
   echo "→ Building for $arch..."
-
-  # Remove existing tag to avoid conflicts
-  #podman rmi "$tag" 2>/dev/null || true
-
   podman build --platform "linux/${arch}" -t "$tag" .
-
   BUILT_IMAGES+=("$tag")
 }
 
@@ -94,68 +87,53 @@ fi
 MANIFEST_PROD="${REGISTRY}/${IMAGE_NAME}:prod"
 MANIFEST_LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
 
-# --- Functions to handle manifests ---
+# --- Clean and recreate a local manifest ---
 ensure_manifest() {
   local manifest=$1
-
   echo "→ Cleaning existing tag (image or manifest): $manifest"
-
-  # Remove manifest if exists
   podman manifest rm "$manifest" 2>/dev/null || true
-
-  # Remove regular image if exists (THIS is what fixes your error)
-  podman rmi "$manifest" 2>/dev/null || true
-
+  podman rmi --force "$manifest" 2>/dev/null || true
   echo "→ Creating manifest: $manifest"
   podman manifest create "$manifest"
 }
 
+# --- Add images to manifest using registry-side digests ---
+# This avoids stale local digest references after push
 add_images_to_manifest() {
   local manifest=$1
-
   for img in "${BUILT_IMAGES[@]}"; do
     echo "→ Adding $img to $manifest"
-
-    arch=$(echo "$img" | awk -F: '{print $2}')
-
-    # Remove same-arch entry if exists (ignore errors)
-    podman manifest remove "$manifest" \
-      "docker://${REGISTRY}/${IMAGE_NAME}:${arch}" \
-      2>/dev/null || true
-
-    podman manifest add "$manifest" "$img"
+    podman manifest add "$manifest" "docker://${img}"
   done
 }
 
 # --- Push logic ---
 if [[ "$PUSH" == true ]]; then
   echo ""
-  echo "→ Preparing manifests..."
-
-  ensure_manifest "$MANIFEST_PROD"
-  ensure_manifest "$MANIFEST_LATEST"
-
-  echo ""
-  echo "→ Updating manifests..."
-  add_images_to_manifest "$MANIFEST_PROD"
-  add_images_to_manifest "$MANIFEST_LATEST"
-
-  echo ""
-  echo "→ Pushing images..."
+  echo "→ Pushing arch-specific images first..."
   for img in "${BUILT_IMAGES[@]}"; do
     podman push "$img"
   done
 
   echo ""
-  echo "→ Pushing manifest: prod"
-  podman manifest push "$MANIFEST_PROD"
+  echo "→ Preparing manifests..."
+  ensure_manifest "$MANIFEST_PROD"
+  ensure_manifest "$MANIFEST_LATEST"
 
+  echo ""
+  echo "→ Updating manifests from registry..."
+  add_images_to_manifest "$MANIFEST_PROD"
+  add_images_to_manifest "$MANIFEST_LATEST"
+
+  echo ""
+  echo "→ Pushing manifest: prod"
+  podman manifest push --rm "$MANIFEST_PROD"
   echo "→ Pushing manifest: latest"
-  podman manifest push "$MANIFEST_LATEST"
+  podman manifest push --rm "$MANIFEST_LATEST"
 
   echo ""
   echo "✅ Done."
 else
   echo ""
-  echo "⚠️ Push disabled. Skipping manifest + push steps."
+  echo "⚠️  Push disabled. Skipping manifest + push steps."
 fi
