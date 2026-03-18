@@ -102,6 +102,78 @@ podman build -t camera-gateway-rtsp:latest src/
 | 8889     | WebRTC   | Browser viewer (WHEP endpoint) |
 | 8189/udp | ICE      | WebRTC media transport |
 
+## Camera device permissions
+
+The container needs read/write access to `/dev/video0` (or whichever `/dev/video*` node your camera appears as) on the host.
+
+### Why it works on Fedora but not on RHEL / headless systems
+
+On a Fedora desktop `systemd-logind` automatically sets a POSIX ACL that grants the locally logged-in user direct access to every `/dev/video*` device:
+
+```
+user:youruser:rw-   ← added automatically by logind
+```
+
+On RHEL, CentOS Stream, or any headless system (including an NVIDIA Jetson) this automatic ACL is never applied, so even with `--device /dev/video0` and `--group-add video` the container process gets a `permission denied` error:
+
+```
+[WARNING] Cannot read /dev/video0 — permission denied.
+```
+
+### Diagnosing the problem
+
+```bash
+# Check whether your user already has an ACL entry:
+getfacl /dev/video0
+
+# Check the GID that owns the device:
+ls -la /dev/video0
+
+# Check whether the video group exists locally:
+getent group video
+grep video /etc/group   # empty output = managed by SSSD/LDAP
+```
+
+### Permanent fix — systemd service (works in all cases, no re-login needed)
+
+```bash
+sudo tee /etc/systemd/system/camera-acl.service <<'EOF'
+[Unit]
+Description=Set camera device ACL for the container user
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/setfacl -m u:YOUR_USER:rw /dev/video0
+ExecStart=/usr/bin/setfacl -m u:YOUR_USER:rw /dev/video1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now camera-acl.service
+
+# Verify
+getfacl /dev/video0   # must show user:YOUR_USER:rw-
+```
+
+Replace `YOUR_USER` with the actual user running the container. Add or remove `ExecStart` lines to match your `/dev/video*` devices.
+
+### Alternative fix — add the user to the video group
+
+```bash
+# Works only if the video group is local (appears in /etc/group):
+sudo usermod -aG video YOUR_USER
+# Log out and back in, then verify:
+id YOUR_USER | grep video
+```
+
+> If the `video` group is absent from `/etc/group` (managed by SSSD/LDAP), you cannot add local users to it — use the systemd service fix above instead.
+
+### Why udev RUN+= rules do not work here
+
+A `udev` rule with `RUN+="/usr/bin/setfacl ..."` looks attractive but on systems with SELinux enforcing (RHEL default) the udev worker process is denied the `setfacl` call and the rule silently does nothing. A systemd `oneshot` service runs in a less restricted SELinux context and is the reliable alternative.
+
 ## Run (standalone)
 
 ```bash

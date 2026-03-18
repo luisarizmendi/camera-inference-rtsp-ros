@@ -190,6 +190,76 @@ There are no hard ordering constraints. All images pull the official `ros:kilted
 
 ---
 
+## Host prerequisites
+
+### Camera device access
+
+The `camera-gateway-rtsp` container needs read/write access to `/dev/video0` (or whichever V4L2 device your camera appears as). How to satisfy this depends on the host OS.
+
+#### Fedora desktop (works out of the box)
+
+`systemd-logind` automatically grants the locally logged-in user an ACL on every `/dev/video*` device. No extra steps are needed — the container can access the camera as soon as you log in.
+
+#### RHEL / CentOS Stream / headless systems (manual step required)
+
+On server or embedded systems (e.g. an NVIDIA Jetson running RHEL) `systemd-logind` does not apply the automatic ACL, so the container process gets a permission-denied error even with `--device /dev/video0` and `--group-add video`.
+
+There are two permanent fixes:
+
+**Option A — systemd service that sets the ACL at boot (recommended):**
+
+```bash
+sudo tee /etc/systemd/system/camera-acl.service <<'EOF'
+[Unit]
+Description=Set camera device ACL for the container user
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/setfacl -m u:YOUR_USER:rw /dev/video0
+ExecStart=/usr/bin/setfacl -m u:YOUR_USER:rw /dev/video1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now camera-acl.service
+```
+
+Replace `YOUR_USER` with the user that will run the container (e.g. `admin`). Add or remove `ExecStart` lines to match the actual `/dev/video*` devices on your system.
+
+**Option B — add the user to the `video` group:**
+
+```bash
+# Check the GID that owns /dev/video0
+ls -la /dev/video0        # look for the group name/GID
+
+# If the video group exists in /etc/group:
+sudo usermod -aG video YOUR_USER
+# then log out and back in
+
+# If the video group is managed remotely (SSSD/LDAP) or does not exist:
+# create it locally to match the device GID (commonly 39)
+sudo groupadd -g 39 video
+sudo usermod -aG video YOUR_USER
+# then log out and back in
+```
+
+> **Note:** If the `video` group is provided by SSSD or LDAP it will not appear in `/etc/group` and you cannot add local users to it. Use Option A in that case.
+
+#### Verify access before running the container
+
+```bash
+# The user running the container must appear here:
+getfacl /dev/video0
+# user:YOUR_USER:rw-   ← required
+
+# or the user must be a member of the owning group:
+id YOUR_USER | grep video
+```
+
+---
+
 ## Running
 
 See [`_run_/README.md`](_run_/README.md) for full instructions using either Podman Compose or systemd Quadlets.
