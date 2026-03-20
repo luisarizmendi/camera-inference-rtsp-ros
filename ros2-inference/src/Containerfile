@@ -11,8 +11,14 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     torch \
     torchvision \
     onnx \
-    onnxruntime-gpu \
-    --extra-index-url https://download.pytorch.org/whl/cu126
+    --extra-index-url https://download.pytorch.org/whl/cu126 && \
+    # onnxruntime-gpu has no aarch64 wheel on PyPI — fall back to CPU build on ARM64
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        pip3 install --no-cache-dir --break-system-packages onnxruntime-gpu; \
+    else \
+        pip3 install --no-cache-dir --break-system-packages onnxruntime; \
+    fi
 RUN mkdir -p /opt/models && \
     curl -L -o /opt/models/yolo11n.pt \
     https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt

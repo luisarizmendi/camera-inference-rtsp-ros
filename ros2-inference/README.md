@@ -44,6 +44,21 @@ Both PyTorch (`.pt`) and ONNX (`.onnx`) models are supported. The node looks for
 2. `<model_stem>.onnx` — ONNX Runtime, provider selected automatically
 3. Fall back to `INFERENCE_MODEL` value as-is, letting Ultralytics auto-download it
 
+### ONNX Runtime and architecture
+
+`onnxruntime-gpu` (the CUDA-enabled build) is only available on x86_64 via PyPI. On aarch64 the image falls back to the CPU-only `onnxruntime` package automatically at build time — the Containerfile detects the architecture with `uname -m` and installs accordingly.
+
+The practical consequence:
+
+| Architecture | Model format | Execution |
+|---|---|---|
+| x86_64 | `.pt` | PyTorch — CPU or CUDA (controlled by `DEVICE`) |
+| x86_64 | `.onnx` | ONNX Runtime — CUDA if available, CPU otherwise |
+| aarch64 | `.pt` | PyTorch — CPU or CUDA (controlled by `DEVICE`) |
+| aarch64 | `.onnx` | ONNX Runtime — CPU only |
+
+If you are running on aarch64 with a GPU and need ONNX GPU inference, mount a `.pt` model instead — PyTorch CUDA works normally on both architectures.
+
 ### Class names
 
 Class names are resolved in this priority order:
@@ -193,6 +208,8 @@ podman run --rm --network host \
   -e INFERENCE_MODEL="my_model.onnx" \
   quay.io/luisarizmendi/ros2-inference:latest
 ```
+
+> On aarch64, ONNX models run on CPU only. Use a `.pt` model if you need GPU inference on ARM64.
 
 ### Providing class names
 
