@@ -43,7 +43,42 @@ Pass the device and group when running the container:
 --group-add $(getent group video | cut -d: -f3)
 ```
 
+### 4. NVIDIA GPU (optional)
+
+To use the GPU for inference, CDI must be configured on the host first. Without it Podman will fail with `unresolvable CDI devices nvidia.com/gpu=all`.
+
+**Install the NVIDIA Container Toolkit** (if not already installed):
+
+```bash
+# RHEL/Fedora
+sudo dnf install -y nvidia-container-toolkit
+
+# Ubuntu/Debian
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+```
+
+**Generate the CDI specification:**
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+Verify it worked:
+
+```bash
+nvidia-ctk cdi list
+# Expected output includes: nvidia.com/gpu=all
+```
+
+> Re-run `nvidia-ctk cdi generate` after any driver upgrade or GPU configuration change.
+
 ---
+
+## Option A — Podman Compose
 
 ### Requirements
 
@@ -56,13 +91,13 @@ pip install podman-compose
 
 ### Configure
 
-Open `compose/compose.yml` and update the two values marked with `########`:
+Open `compose/compose.yml` and update the values marked with `########`:
 
 ```yaml
 # In ros2-inference:
 RTSP_URL: "rtsp://<YOUR_HOST_IP>:8554/stream"
 
-# In camera-gateway-rtsp (uncomment):
+# In camera-gateway-rtsp (uncomment if WebRTC ICE fails):
 # MTX_WEBRTCADDITIONALHOSTS: "<YOUR_HOST_IP>"
 ```
 
@@ -95,7 +130,7 @@ podman compose down
 
 ### GPU inference
 
-Uncomment the `devices` block in the `ros2-inference` section of `compose.yml`:
+Uncomment the `devices` block and set `DEVICE` in the `ros2-inference` section of `compose.yml`:
 
 ```yaml
 ros2-inference:
@@ -104,6 +139,34 @@ ros2-inference:
     - nvidia.com/gpu=all
   environment:
     DEVICE: "cuda"
+```
+
+### Custom model
+
+Mount the model file and set `INFERENCE_MODEL`. Both `.pt` and `.onnx` are supported:
+
+```yaml
+ros2-inference:
+  volumes:
+    - /path/to/my_model.onnx:/opt/models/my_model.onnx:ro
+  environment:
+    INFERENCE_MODEL: "my_model.onnx"
+```
+
+### Class names for custom models
+
+If your model does not embed class names (common with third-party ONNX exports), provide them via env var or file:
+
+```yaml
+# Option A — inline list
+environment:
+  CLASS_NAMES: "person,bicycle,car,motorcycle,bus,truck"
+
+# Option B — file (one name per line, line 0 = class 0)
+volumes:
+  - /path/to/classes.txt:/opt/models/classes.txt:ro
+environment:
+  CLASS_NAMES_FILE: "/opt/models/classes.txt"
 ```
 
 ### Service summary
@@ -119,7 +182,7 @@ The ROS2 containers use `network_mode: host` because DDS multicast does not reli
 
 ---
 
-## Option B, Podman Quadlets (systemd)
+## Option B — Podman Quadlets (systemd)
 
 Quadlets turn `.container` files into systemd units automatically. Each container becomes a proper systemd service with boot start, failure restart, and `journalctl` integration.
 
@@ -132,7 +195,7 @@ Quadlets turn `.container` files into systemd units automatically. Each containe
 
 Edit the `.container` files in `quadlets/` before installing. At minimum:
 
-**`camera-gateway-rtsp.container`**, set your LAN IP and video device:
+**`camera-gateway-rtsp.container`** — set your LAN IP and video device:
 ```ini
 Environment=MTX_WEBRTCADDITIONALHOSTS=192.168.1.41
 AddDevice=/dev/video0
@@ -144,9 +207,25 @@ Find the `video` group GID:
 getent group video | cut -d: -f3
 ```
 
-**`ros2-inference.container`**, set your LAN IP:
+**`ros2-inference.container`** — set your LAN IP:
 ```ini
 Environment=RTSP_URL=rtsp://192.168.1.41:8554/stream
+```
+
+To use a custom model, mount it and set `INFERENCE_MODEL`:
+```ini
+Volume=/path/to/my_model.onnx:/opt/models/my_model.onnx:ro
+Environment=INFERENCE_MODEL=my_model.onnx
+```
+
+To provide class names for models without embedded metadata:
+```ini
+# Option A — inline list
+Environment=CLASS_NAMES=person,bicycle,car,motorcycle,bus,truck
+
+# Option B — file (mount it first)
+Volume=/path/to/classes.txt:/opt/models/classes.txt:ro
+Environment=CLASS_NAMES_FILE=/opt/models/classes.txt
 ```
 
 ### Install, rootless (user session)
@@ -241,7 +320,7 @@ systemctl --user restart ros2-inference.service
 
 ### How quadlets work
 
-Podman reads `.container` and `.network` files from `~/.config/containers/systemd/` (rootless) or `/etc/containers/systemd/` (system) and generates full systemd unit files under `/run/systemd/generator/`. You never write the `[Service]` section by hand, quadlet translates directives like `Image=`, `Network=`, `Environment=` and `PublishPort=` into the right `podman run` arguments.
+Podman reads `.container` and `.network` files from `~/.config/containers/systemd/` (rootless) or `/etc/containers/systemd/` (system) and generates full systemd unit files under `/run/systemd/generator/`. You never write the `[Service]` section by hand — quadlet translates directives like `Image=`, `Network=`, `Environment=`, and `Volume=` into the right `podman run` arguments.
 
 To inspect the generated unit:
 ```bash

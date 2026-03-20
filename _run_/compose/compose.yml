@@ -1,7 +1,6 @@
 # compose.yml — full camera inference + overlay stack
 #
 # Build order (run once):
-#   podman build -t ros2-fedora-base:latest    ros2-fedora-base/src/
 #   podman build -t ros2-inference:latest      ros2-inference/src/
 #   podman build -t ros2-rosbridge:latest      ros2-rosbridge/src/
 #   podman build -t camera-gateway-rtsp:latest camera-gateway-rtsp/src/
@@ -24,16 +23,14 @@
 #                          ros2-rosbridge :9099 ─────────► browser overlay
 #
 # The browser opens viewer/src/index.html and connects to both endpoints.
-
 version: "3.9"
-
 services:
 
   # ── Camera gateway ──────────────────────────────────────────────────────────
   camera-gateway-rtsp:
     image: quay.io/luisarizmendi/camera-gateway-rtsp:latest
     restart: unless-stopped
-    network_mode: host    
+    network_mode: host
     devices:
       - /dev/video0        # match your camera #################################
     security_opt:
@@ -46,7 +43,7 @@ services:
       - "8889:8889"        # WebRTC
       - "8189:8189/udp"    # WebRTC ICE
     environment:
-      # MTX_WEBRTCADDITIONALHOSTS: "192.168.1.41"   # optional
+      # MTX_WEBRTCADDITIONALHOSTS: "192.168.1.41"   # set your LAN IP if WebRTC ICE fails
       RTSP_NAME: "stream"
       # CAM_FRAMERATE: "30"
       # CAM_RESOLUTION: "1280x720"
@@ -54,38 +51,44 @@ services:
       # CAM_PRESET: "ultrafast"
       # CAM_TUNE: "zerolatency"
 
-  # ── YOLOv11 inference ────────────────────────────────────────────────────────
+  # ── Object detection inference ───────────────────────────────────────────────
   ros2-inference:
     image: quay.io/luisarizmendi/ros2-inference:latest
     restart: unless-stopped
-    network_mode: host 
+    network_mode: host
     security_opt:
       - label=disable
     volumes:
       - /dev/shm:/dev/shm
+      # Mount a custom model (optional):
+      # - /path/to/my_model.onnx:/opt/models/my_model.onnx:ro
+      # Mount a class names file (optional):
+      # - /path/to/classes.txt:/opt/models/classes.txt:ro
     environment:
-      RTSP_URL: "rtsp://192.168.1.41:8554/stream"  # match your RTSP stream ########
-      YOLO_MODEL: "yolo11n.pt"
+      RTSP_URL: "rtsp://192.168.1.41:8554/stream"  # set your LAN IP ##########
+      INFERENCE_MODEL: "yolo11n.pt"
       TARGET_FPS: "30"
       DEVICE: "auto"
+      # MODELS_DIR: "/opt/models"
       # DETECTION_TOPIC: "/detections"
       # CONFIDENCE_THRESHOLD: "0.4"
       # INFERENCE_WIDTH: "640"
       # INFERENCE_HEIGHT: "640"
+      # DETECTION_TTL: "1.0"
       # VERBOSE: "false"
       # ROS_DOMAIN_ID: "0"
+      #
+      # Class names — needed for ONNX models without embedded metadata.
+      # Option A: inline comma-separated list (takes precedence over file):
+      # CLASS_NAMES: "person,bicycle,car,motorcycle,bus,truck"
+      # Option B: path to a file mounted above (one name per line):
+      # CLASS_NAMES_FILE: "/opt/models/classes.txt"
     #
-    # Uncomment for NVIDIA GPU:
-    #
-    devices:
-      - nvidia.com/gpu=all
-
-  # ── Image viewer ─────────────────────────────────────────────────────────────
-  image-inference-viewer:
-    image: quay.io/luisarizmendi/image-inference-viewer:latest
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # Uncomment for NVIDIA GPU (requires CDI — see ros2-inference README):
+    # devices:
+    #   - nvidia.com/gpu=all
+    # environment:
+    #   DEVICE: "cuda"
 
   # ── rosbridge WebSocket server ───────────────────────────────────────────────
   ros2-rosbridge:
@@ -99,3 +102,10 @@ services:
     environment:
       ROSBRIDGE_PORT: "9099"
       # ROS_DOMAIN_ID: "0"
+
+  # ── Image viewer ─────────────────────────────────────────────────────────────
+  image-inference-viewer:
+    image: quay.io/luisarizmendi/image-inference-viewer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"

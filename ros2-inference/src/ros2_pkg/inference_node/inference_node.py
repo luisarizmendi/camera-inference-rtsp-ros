@@ -1,17 +1,17 @@
 """
 Inference Node
- 
+
 Pulls frames directly from an RTSP stream (bypassing ROS2 image transport
 entirely for minimum latency), runs YOLOv11 detection, and publishes results
 as vision_msgs/Detection2DArray on a configurable topic.
- 
+
 The browser viewer receives:
   - Video via WebRTC directly from MediaMTX (no ROS2 involvement)
   - Detections via rosbridge WebSocket from this node
- 
+
 This architecture eliminates the double video encode pipeline that caused
 6+ seconds of latency in the previous design.
- 
+
 Environment variables
 ---------------------
 RTSP_URL               RTSP stream to pull frames from (default: rtsp://127.0.0.1:8554/stream)
@@ -35,15 +35,22 @@ DEVICE                 Inference device: auto, cpu, cuda, cuda:0, etc. (default:
                        auto = use CUDA if available, fall back to CPU
                        Note: ignored when loading an ONNX model (provider is
                        selected by Ultralytics/ONNX Runtime automatically)
+CLASS_NAMES            Comma-separated class names in ID order, e.g.:
+                       "person,bicycle,car,motorcycle"
+                       Overrides or replaces whatever names the model provides.
+                       Takes precedence over CLASS_NAMES_FILE.
+CLASS_NAMES_FILE       Path to a plain-text file with one class name per line
+                       (line 0 = class 0). Ignored if CLASS_NAMES is set.
+                       Mount the file into the container and point this var at it.
 VERBOSE                Log every detection: 1/true/yes (default: false)
 ROS_DOMAIN_ID          ROS2 DDS domain ID (default: 0)
 """
- 
+
 import os
 import time
 import threading
 from typing import Optional
- 
+
 import cv2
 import numpy as np
 import rclpy
@@ -51,10 +58,10 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D, ObjectHypothesisWithPose
 from std_msgs.msg import Header
- 
- 
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
- 
+
 def _env_int(key: str, default: int) -> int:
     try:
         return int(os.environ.get(key, default))
@@ -154,6 +161,40 @@ class InferenceNode(Node):
         if model_format != "ONNX":
             self._model.to(self.device)
         self.get_logger().info(f"Model loaded — format: {model_format}, device: {self.device}.")
+
+        # ── Resolve class names ───────────────────────────────────────────────
+        # Priority: CLASS_NAMES env var > CLASS_NAMES_FILE > names embedded in model
+        class_names_env  = os.environ.get("CLASS_NAMES", "").strip()
+        class_names_file = os.environ.get("CLASS_NAMES_FILE", "").strip()
+
+        if class_names_env:
+            names = [n.strip() for n in class_names_env.split(",") if n.strip()]
+            self._model.names = {i: n for i, n in enumerate(names)}
+            self.get_logger().info(
+                f"Class names loaded from CLASS_NAMES env var ({len(names)} classes)."
+            )
+        elif class_names_file:
+            if not os.path.exists(class_names_file):
+                self.get_logger().warning(
+                    f"CLASS_NAMES_FILE '{class_names_file}' not found — using model names."
+                )
+            else:
+                with open(class_names_file) as f:
+                    names = [line.strip() for line in f if line.strip()]
+                self._model.names = {i: n for i, n in enumerate(names)}
+                self.get_logger().info(
+                    f"Class names loaded from '{class_names_file}' ({len(names)} classes)."
+                )
+        else:
+            if self._model.names:
+                self.get_logger().info(
+                    f"Using {len(self._model.names)} class name(s) embedded in model."
+                )
+            else:
+                self.get_logger().warning(
+                    "No class names found in model and CLASS_NAMES / CLASS_NAMES_FILE not set. "
+                    "Detections will use numeric class IDs."
+                )
 
         # ── Start capture thread ──────────────────────────────────────────────
         self._stop = threading.Event()

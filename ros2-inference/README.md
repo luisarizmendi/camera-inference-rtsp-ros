@@ -44,6 +44,17 @@ Both PyTorch (`.pt`) and ONNX (`.onnx`) models are supported. The node looks for
 2. `<model_stem>.onnx` — ONNX Runtime, provider selected automatically
 3. Fall back to `INFERENCE_MODEL` value as-is, letting Ultralytics auto-download it
 
+### Class names
+
+Class names are resolved in this priority order:
+
+1. **`CLASS_NAMES` env var** — comma-separated list, e.g. `"person,bicycle,car"`
+2. **`CLASS_NAMES_FILE`** — path to a plain-text file with one name per line (line 0 = class 0)
+3. **Names embedded in the model** — works automatically for `.pt` models and for ONNX models exported via Ultralytics
+4. If none of the above, detections fall back to numeric class IDs
+
+This matters especially for ONNX models not exported through Ultralytics, which typically carry no class metadata.
+
 ## Build
 
 ```bash
@@ -85,6 +96,8 @@ cd ros2-inference
 | `TARGET_FPS`           | `30`                           | Max inference rate, frames between cycles are dropped |
 | `DETECTION_TTL`        | `1.0`                          | Seconds after last detection before publishing empty array |
 | `DEVICE`               | `auto`                         | `auto`, `cpu`, `cuda`, `cuda:0` — ignored for ONNX models |
+| `CLASS_NAMES`          | _(unset)_                      | Comma-separated class names in ID order. Overrides model metadata and `CLASS_NAMES_FILE` |
+| `CLASS_NAMES_FILE`     | _(unset)_                      | Path to a file with one class name per line (line 0 = class 0). Ignored if `CLASS_NAMES` is set |
 | `VERBOSE`              | `false`                        | Log every detection |
 | `ROS_DOMAIN_ID`        | `0`                            | ROS2 DDS domain ID |
 
@@ -122,19 +135,20 @@ sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
 sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 ```
 
-You can verify the available CDI devices with:
+Verify the available CDI devices with:
 
 ```bash
 nvidia-ctk cdi list
 ```
 
 Which should show something like:
+
 ```
 nvidia.com/gpu=all
 nvidia.com/gpu=0
 ```
 
-> You need to re-run `nvidia-ctk cdi generate` after driver upgrades or any GPU configuration change (e.g. MIG). If you store the spec in `/var/run/cdi/` instead of `/etc/cdi/`, note that `/var/run/` is cleared on reboot.
+> Re-run `nvidia-ctk cdi generate` after any driver upgrade or GPU configuration change. If you store the spec under `/var/run/cdi/` instead of `/etc/cdi/`, note that `/var/run/` is cleared on reboot.
 
 ## Run (standalone)
 
@@ -180,6 +194,41 @@ podman run --rm --network host \
   quay.io/luisarizmendi/ros2-inference:latest
 ```
 
+### Providing class names
+
+If the model does not embed class names (common with third-party ONNX models), pass them via env var or file:
+
+```bash
+# Inline — comma-separated, in class ID order
+podman run --rm --network host \
+  -v /dev/shm:/dev/shm \
+  -v /path/to/my_model.onnx:/opt/models/my_model.onnx:ro \
+  -e INFERENCE_MODEL="my_model.onnx" \
+  -e CLASS_NAMES="person,bicycle,car,motorcycle,bus,truck" \
+  quay.io/luisarizmendi/ros2-inference:latest
+
+# File — one name per line, line 0 = class 0
+podman run --rm --network host \
+  -v /dev/shm:/dev/shm \
+  -v /path/to/my_model.onnx:/opt/models/my_model.onnx:ro \
+  -v /path/to/classes.txt:/opt/models/classes.txt:ro \
+  -e INFERENCE_MODEL="my_model.onnx" \
+  -e CLASS_NAMES_FILE="/opt/models/classes.txt" \
+  quay.io/luisarizmendi/ros2-inference:latest
+```
+
+Example `classes.txt`:
+```
+person
+bicycle
+car
+motorcycle
+bus
+truck
+```
+
+> `CLASS_NAMES` and `CLASS_NAMES_FILE` also work with `.pt` models if you want to override the names embedded in the weights.
+
 ## Detection message format
 
 Topic: `/detections`
@@ -188,5 +237,5 @@ Type: `vision_msgs/msg/Detection2DArray`
 Each `Detection2D` contains:
 - `bbox.center.position.x/y` — bounding-box centre in original-frame pixels
 - `bbox.size_x/size_y` — bounding-box width and height in pixels
-- `results[0].hypothesis.class_id` — class label string (e.g. `"person"`)
+- `results[0].hypothesis.class_id` — class label string (e.g. `"person"`) or numeric ID if no names are available
 - `results[0].hypothesis.score` — confidence 0-1

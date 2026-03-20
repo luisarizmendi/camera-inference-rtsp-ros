@@ -1,13 +1,17 @@
 # ros2-inference.container
 #
-# Podman quadlet unit — RTSP frame pull → YOLOv11 → /detections publisher
+# Podman quadlet unit — RTSP frame pull → object detection → /detections publisher
 #
 # Place this file (and the other .container / .network files) in:
 #   System (root):   /etc/containers/systemd/
 #   User (rootless): ~/.config/containers/systemd/
+#
+# After editing, reload the daemon:
+#   systemctl --user daemon-reload   (rootless)
+#   sudo systemctl daemon-reload     (system-wide)
 
 [Unit]
-Description=ROS2 Inference — YOLOv11 object detection from RTSP stream
+Description=ROS2 Inference — object detection from RTSP stream
 After=network-online.target camera-gateway-rtsp.service
 Wants=network-online.target
 
@@ -21,23 +25,42 @@ Network=host
 # Shared memory mount — improves DDS transport performance.
 Volume=/dev/shm:/dev/shm
 
+# Mount a custom model (optional):
+# Volume=/path/to/my_model.onnx:/opt/models/my_model.onnx:ro
+
+# Mount a class names file (optional):
+# Volume=/path/to/classes.txt:/opt/models/classes.txt:ro
+
 # ── NVIDIA GPU (optional) ──────────────────────────────────────────────────────
-# Uncomment these two lines to enable GPU inference:
+# Requires CDI to be generated on the host first:
+#   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+# Then uncomment:
 # AddDevice=nvidia.com/gpu=all
 # SecurityLabelDisable=true
 
 # ── Environment ────────────────────────────────────────────────────────────────
 # Set RTSP_URL to the LAN IP of the host running camera-gateway-rtsp.
 Environment=RTSP_URL=rtsp://192.168.1.41:8554/stream
-Environment=YOLO_MODEL=yolo11n.pt
+Environment=INFERENCE_MODEL=yolo11n.pt
 Environment=TARGET_FPS=30
 Environment=DEVICE=auto
+# Environment=MODELS_DIR=/opt/models
+# Environment=DETECTION_TOPIC=/detections
 # Environment=CONFIDENCE_THRESHOLD=0.4
 # Environment=INFERENCE_WIDTH=640
 # Environment=INFERENCE_HEIGHT=640
 # Environment=DETECTION_TTL=1.0
 # Environment=VERBOSE=false
 # Environment=ROS_DOMAIN_ID=0
+
+# Class names — needed for ONNX models without embedded metadata.
+# Option A: inline comma-separated list (takes precedence over file):
+# Environment=CLASS_NAMES=person,bicycle,car,motorcycle,bus,truck
+# Option B: path to a file mounted above (one name per line):
+# Environment=CLASS_NAMES_FILE=/opt/models/classes.txt
+
+# GPU inference (also uncomment AddDevice above):
+# Environment=DEVICE=cuda
 
 # ── Restart policy ────────────────────────────────────────────────────────────
 Restart=always
