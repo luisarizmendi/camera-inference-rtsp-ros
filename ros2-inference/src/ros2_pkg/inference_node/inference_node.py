@@ -163,13 +163,15 @@ class InferenceNode(Node):
         self.get_logger().info(f"Model loaded — format: {model_format}, device: {self.device}.")
 
         # ── Resolve class names ───────────────────────────────────────────────
+        # Stored in self._class_names so it works for both .pt and .onnx —
+        # patching model internals is not safe across Ultralytics backends.
         # Priority: CLASS_NAMES env var > CLASS_NAMES_FILE > names embedded in model
         class_names_env  = os.environ.get("CLASS_NAMES", "").strip()
         class_names_file = os.environ.get("CLASS_NAMES_FILE", "").strip()
 
         if class_names_env:
             names = [n.strip() for n in class_names_env.split(",") if n.strip()]
-            self._model.names = {i: n for i, n in enumerate(names)}
+            self._class_names = {i: n for i, n in enumerate(names)}
             self.get_logger().info(
                 f"Class names loaded from CLASS_NAMES env var ({len(names)} classes)."
             )
@@ -178,21 +180,32 @@ class InferenceNode(Node):
                 self.get_logger().warning(
                     f"CLASS_NAMES_FILE '{class_names_file}' not found — using model names."
                 )
+                self._class_names = None
             else:
                 with open(class_names_file) as f:
                     names = [line.strip() for line in f if line.strip()]
-                self._model.names = {i: n for i, n in enumerate(names)}
+                self._class_names = {i: n for i, n in enumerate(names)}
                 self.get_logger().info(
                     f"Class names loaded from '{class_names_file}' ({len(names)} classes)."
                 )
         else:
-            if self._model.names:
-                self.get_logger().info(
-                    f"Using {len(self._model.names)} class name(s) embedded in model."
-                )
-            else:
+            self._class_names = None  # fall back to model's embedded names at inference time
+
+        if self._class_names is None:
+            try:
+                embedded = self._model.names
+                if embedded:
+                    self.get_logger().info(
+                        f"Using {len(embedded)} class name(s) embedded in model."
+                    )
+                else:
+                    self.get_logger().warning(
+                        "No class names found in model and CLASS_NAMES / CLASS_NAMES_FILE not set. "
+                        "Detections will use numeric class IDs."
+                    )
+            except Exception:
                 self.get_logger().warning(
-                    "No class names found in model and CLASS_NAMES / CLASS_NAMES_FILE not set. "
+                    "Could not read class names from model. "
                     "Detections will use numeric class IDs."
                 )
 
@@ -301,7 +314,8 @@ class InferenceNode(Node):
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 conf  = float(box.conf[0])
                 cls   = int(box.cls[0])
-                label = self._model.names.get(cls, str(cls))
+                names = self._class_names if self._class_names is not None else self._model.names
+                label = names.get(cls, str(cls)) if names else str(cls)
 
                 x1 *= scale_x; x2 *= scale_x
                 y1 *= scale_y; y2 *= scale_y
